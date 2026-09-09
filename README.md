@@ -39,6 +39,12 @@ bash scripts/build.sh
 The resulting `dist/` directory (`OpenRung.WinUI.exe` + `core/openrung-core.exe`)
 is fully portable: copy it anywhere and run `OpenRung.WinUI.exe`.
 
+## Screenshots
+
+![主页](docs/screenshots/home.png)
+![服务器](docs/screenshots/servers.png)
+![设置](docs/screenshots/settings.png)
+
 ## Run
 
 Double-click `OpenRung.WinUI.exe`. The big button connects; the mode switch
