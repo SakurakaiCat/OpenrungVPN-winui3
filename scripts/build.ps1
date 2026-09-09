@@ -1,5 +1,5 @@
 #requires -Version 5
-# Build openrung-winui3 on Windows: Go core + WinUI3 app -> dist\
+# Build openrung-winui3 on Windows: Go core + C++/WinRT WinUI3 app -> dist\
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
@@ -12,12 +12,17 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'go build failed' }
 } finally { Pop-Location }
 
-Write-Host '==> publishing OpenRung.WinUI (win-x64, self-contained)'
-& dotnet publish (Join-Path $root 'app\OpenRung.WinUI\OpenRung.WinUI.csproj') `
-    -c Release -r win-x64 --self-contained `
-    -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true `
-    -p:PublishSingleFile=false `
-    -o (Join-Path $root 'dist')
-if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
+# Locate MSBuild through vswhere (VS 2019/2022 or Build Tools).
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found; install Visual Studio Build Tools (C++ + WinUI)' }
+$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+if (-not $msbuild) { throw 'MSBuild not found' }
+
+$project = Join-Path $root 'app\OpenRung.WinUI.Cpp\OpenRung.WinUI.Cpp.vcxproj'
+Write-Host '==> building OpenRung.WinUI (C++/WinRT, win-x64, self-contained)'
+& $msbuild $project /restore /m /p:Configuration=Release /p:Platform=x64 `
+    /p:OutDir="$root\dist\\" /p:IntDir="$root\app\OpenRung.WinUI.Cpp\obj\x64\Release\\"
+$buildLog = $LASTEXITCODE
+if ($buildLog -ne 0) { throw 'msbuild failed' }
 
 Write-Host "==> done: $root\dist"

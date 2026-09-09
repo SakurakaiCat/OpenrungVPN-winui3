@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <CppWinRTOptimized>true</CppWinRTOptimized>
+    <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
+    <MinimalCoreWin>true</MinimalCoreWin>
+    <ProjectGuid>{5C3E2A1D-7B4F-4C9E-8D2A-1F6B3C4D5E6F}</ProjectGuid>
+    <ProjectName>OpenRung.WinUI</ProjectName>
+    <RootNamespace>OpenRung.WinUI</RootNamespace>
+    <!-- $(TargetName) must match $(RootNamespace): the generated .winmd carries
+         the root namespace name and XAML looks it up next to the exe. -->
+    <TargetName>$(RootNamespace)</TargetName>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <MinimumVisualStudioVersion>16.0</MinimumVisualStudioVersion>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <!-- Desktop WinUI3 (unpackaged): need WinRT projections but NOT the
+         UWP app-container API family which hides CreateFileW/menus/etc. -->
+    <AppContainerApplication>true</AppContainerApplication>
+    <_NoWinAPIFamilyApp>true</_NoWinAPIFamilyApp>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <AppxPackage>false</AppxPackage>
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- NuGet hard-codes framework 'native' for every .vcxproj during restore,
+         but the build-time asset check demands UAP for Windows Store app types,
+         so the two can never agree on the command line. C++ projects consume
+         packages through their build/.props+.targets (CppWinRT, WindowsAppSDK),
+         not through managed asset resolution - disable the check entirely.
+         TargetFrameworkMoniker stays UAP for the XAML compiler's
+         ReferenceGrouping; TargetFrameworks feeds restore's per-framework alias. -->
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <TargetFrameworkMoniker>UAP,Version=v10.0</TargetFrameworkMoniker>
+    <TargetFrameworks>UAP,Version=v10.0</TargetFrameworks>
+    <!-- Matches the generated .nuget.g.props ImportGroup/Pkg* condition. -->
+    <TargetFramework Condition="'$(TargetFramework)' == ''">UAP,Version=v10.0</TargetFramework>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset Condition="'$(VisualStudioVersion)' == '17.0'">v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <DesktopCompatible>true</DesktopCompatible>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <AppxPriInitialPath></AppxPriInitialPath>
+    <!-- task.ms/36913638: unpackaged C++ WinUI gets an extra root-namespace
+         segment in resource URIs otherwise -->
+  </PropertyGroup>
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
+      <WarningLevel>Level3</WarningLevel>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8</AdditionalOptions>
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;DISABLE_XAML_GENERATED_MAIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;winhttp.lib;iphlpapi.lib;ws2_32.lib;shell32.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <MapFileName>$(OutDir)$(TargetName).map</MapFileName>
+      <MapExports>true</MapExports>
+      <AdditionalLibraryDirectories>$(VC_LibraryPath_VC_x64_Desktop);$(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Manifest Include="app.manifest" />
+    <ResourceCompile Include="app.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="App.xaml.h">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Models\Dto.h" />
+    <ClInclude Include="Models\NameTables.h" />
+    <ClInclude Include="Models\RelayRow.h" />
+    <ClInclude Include="Services\AppLog.h" />
+    <ClInclude Include="Services\StartupLog.h" />
+    <ClInclude Include="Services\AppSettings.h" />
+    <ClInclude Include="Services\AppState.h" />
+    <ClInclude Include="Services\CoreApiClient.h" />
+    <ClInclude Include="Services\CoreEventsClient.h" />
+    <ClInclude Include="Services\CoreManager.h" />
+    <ClInclude Include="Services\CoreSupervisor.h" />
+    <ClInclude Include="Services\Http.h" />
+    <ClInclude Include="Services\InterceptionDiagnostics.h" />
+    <ClInclude Include="Services\RelayDirectory.h" />
+    <ClInclude Include="Services\TrayIcon.h" />
+    <ClInclude Include="Views\StateUi.h" />
+    <ClInclude Include="Views\MainWindow.xaml.h">
+      <DependentUpon>Views\MainWindow.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Views\HomePage.xaml.h">
+      <DependentUpon>Views\HomePage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Views\ServersPage.xaml.h">
+      <DependentUpon>Views\ServersPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Views\SettingsPage.xaml.h">
+      <DependentUpon>Views\SettingsPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Views\LogsPage.xaml.h">
+      <DependentUpon>Views\LogsPage.xaml</DependentUpon>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml" />
+    <Page Include="Views\MainWindow.xaml" />
+    <Page Include="Views\HomePage.xaml" />
+    <Page Include="Views\ServersPage.xaml" />
+    <Page Include="Views\SettingsPage.xaml" />
+    <Page Include="Views\LogsPage.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Midl Include="Project.idl" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+    <ClCompile Include="App.xaml.cpp">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Models\Dto.cpp" />
+    <ClCompile Include="Models\RelayRow.cpp" />
+    <ClCompile Include="Services\AppLog.cpp" />
+    <ClCompile Include="Services\StartupLog.cpp" />
+    <ClCompile Include="Services\AppSettings.cpp" />
+    <ClCompile Include="Services\AppState.cpp" />
+    <ClCompile Include="Services\CoreApiClient.cpp" />
+    <ClCompile Include="Services\CoreEventsClient.cpp" />
+    <ClCompile Include="Services\CoreManager.cpp" />
+    <ClCompile Include="Services\CoreSupervisor.cpp" />
+    <ClCompile Include="Services\Http.cpp" />
+    <ClCompile Include="Services\InterceptionDiagnostics.cpp" />
+    <ClCompile Include="Services\RelayDirectory.cpp" />
+    <ClCompile Include="Services\TrayIcon.cpp" />
+    <ClCompile Include="Views\MainWindow.xaml.cpp">
+      <DependentUpon>Views\MainWindow.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Views\HomePage.xaml.cpp">
+      <DependentUpon>Views\HomePage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Views\ServersPage.xaml.cpp">
+      <DependentUpon>Views\ServersPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Views\SettingsPage.xaml.cpp">
+      <DependentUpon>Views\SettingsPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Views\LogsPage.xaml.cpp">
+      <DependentUpon>Views\LogsPage.xaml</DependentUpon>
+    </ClCompile>
+  </ItemGroup>
+  <!-- Ship the flag icons / logos next to the exe; ms-appx:/// URIs resolve
+       against the exe directory for unpackaged apps. -->
+  <ItemGroup>
+    <None Include="Assets\**\*" />
+  </ItemGroup>
+  <Target Name="CopyAssets" AfterTargets="Build">
+    <ItemGroup>
+      <_AssetFiles Include="$(ProjectDir)Assets\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AssetFiles)"
+          DestinationFiles="@(_AssetFiles->'$(TargetDir)Assets\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+  <!-- The XAML compiler writes code-behind glue into a subfolder mirroring
+       the .xaml file location (Generated Files\Views\*.xaml.g.h), while
+       C++/WinRT's per-type projection headers expect it next to them under
+       the namespace-dotted name (Generated Files\*.xaml.g.h). XAML classes
+       live in the root namespace, so flatten the copies after each pass. -->
+  <!-- The XamlCompiler-derived AppT bases on the generic projection
+       ApplicationT<D, IXamlMetadataProvider>, which makes com_ref of
+       implementation::App resolve to Application and breaks cppwinrt's own
+       generated App::App() ctor in App.g.cpp (C2665). Pages are fine because
+       they derive from <Class>_base. Rebase AppT onto App_base (from the
+       cppwinrt-generated App.g.h), which implements the projected App class
+       and restores the move-ctor overload. Idempotent: no-op once patched. -->
+  <Target Name="PatchAppGlueBase" AfterTargets="MarkupCompilePass1"
+          Condition="Exists('$(XamlGeneratedOutputPath)App.xaml.g.h')">
+<Exec Command="powershell.exe -NoProfile -Command &quot;$f='$(XamlGeneratedOutputPath)App.xaml.g.h'; $t=[IO.File]::ReadAllText($f); $u=$t.Replace('struct AppT: public ::winrt::Microsoft::UI::Xaml::ApplicationT&lt;D, ::winrt::Microsoft::UI::Xaml::Markup::IXamlMetadataProvider','struct AppT: public App_base&lt;D, ::winrt::Microsoft::UI::Xaml::Markup::IXamlMetadataProvider'); if($u -ne $t){[IO.File]::WriteAllText($f,$u)}&quot;" />
+  </Target>
+  <Target Name="FlattenXamlGlueHeaders" AfterTargets="MarkupCompilePass1">
+    <ItemGroup>
+      <_XamlGlueH Include="$(XamlGeneratedOutputPath)Views\*.xaml.g.h" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_XamlGlueH)"
+          DestinationFiles="@(_XamlGlueH->'$(XamlGeneratedOutputPath)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="FlattenXamlGlueSources" AfterTargets="MarkupCompilePass2">
+    <ItemGroup>
+      <_XamlGlueCpp Include="$(XamlGeneratedOutputPath)Views\*.xaml.g.cpp" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_XamlGlueCpp)"
+          DestinationFiles="@(_XamlGlueCpp->'$(XamlGeneratedOutputPath)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.240405.15" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250228001" />
+  </ItemGroup>
+</Project>

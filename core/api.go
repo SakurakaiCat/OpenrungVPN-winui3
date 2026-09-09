@@ -67,6 +67,15 @@ func methodOnly(w http.ResponseWriter, r *http.Request, method string) bool {
 	return true
 }
 
+// apiLog records an API-surface event in the hub's log ring, so the logs page
+// shows the full chain for every request: the user's action (app side), the
+// API handling incl. preflight results (these lines), then the engine ladder.
+// Heartbeats are deliberately excluded: at one every few seconds they would
+// drown the interesting lines.
+func (c *core) apiLog(format string, args ...any) {
+	c.hub.appendLog(logEntry{Time: time.Now().UTC(), Line: "api: " + fmt.Sprintf(format, args...)})
+}
+
 // ---- GET /api/version -----------------------------------------------------
 
 func (c *core) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -271,13 +280,35 @@ func (c *core) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if brokerURL == "" {
 		brokerURL = c.broker
 	}
+	target := body.RelayID
+	if target == "" {
+		if body.Country != "" {
+			target = "country:" + body.Country
+		} else {
+			target = "auto"
+		}
+	}
+	c.apiLog("POST /api/connect: target=%s mode=%s broker=%s", target, c.engine.Mode(), brokerURL)
 
 	// TUN without privileges refuses before any dialing happens, so the UI
 	// gets the contract's 428 and offers the elevated restart.
 	if c.engine.Mode() == connectcore.ModeTUN {
 		if err := tunModeAvailable(); err != nil {
+			c.apiLog("POST /api/connect refused 428 elevation_required: %v", err)
 			writeError(w, 428, "elevation_required", err.Error())
 			return
+		}
+		// An existing TUN device means auto_route would fight its routes and
+		// blackhole the machine — refuse before the ladder dials anything.
+		// Only when idle though: a connected/connecting engine owns its own
+		// tun device, which must not be mistaken for a foreign one.
+		switch st := c.engine.State().Status; st {
+		case connectcore.StatusDisconnected, connectcore.StatusFailed:
+			if err := tunDeviceConflict(); err != nil {
+				c.apiLog("POST /api/connect refused 409 tun_conflict: %v", err)
+				writeError(w, http.StatusConflict, "tun_conflict", err.Error())
+				return
+			}
 		}
 	}
 
@@ -288,9 +319,11 @@ func (c *core) handleConnect(w http.ResponseWriter, r *http.Request) {
 			status = 428
 			code = "elevation_required"
 		}
+		c.apiLog("POST /api/connect failed %d %s: %v", status, code, err)
 		writeError(w, status, code, err.Error())
 		return
 	}
+	c.apiLog("POST /api/connect dispatched; outcome arrives via events")
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
@@ -299,7 +332,9 @@ func (c *core) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Disconnect is idempotent — the engine tolerates disconnect-when-idle.
+	c.apiLog("POST /api/disconnect (status=%s)", c.engine.State().Status)
 	if err := c.engine.Disconnect(); err != nil {
+		c.apiLog("POST /api/disconnect failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "", err.Error())
 		return
 	}
@@ -387,16 +422,19 @@ func (c *core) handleMode(w http.ResponseWriter, r *http.Request) {
 	// elevated restart instead of discovering it on connect.
 	if mode == connectcore.ModeTUN {
 		if err := tunModeAvailable(); err != nil {
+			c.apiLog("POST /api/mode refused 428 elevation_required: %v", err)
 			writeError(w, 428, "elevation_required", err.Error())
 			return
 		}
 	}
 
 	if err := c.engine.SetMode(mode); err != nil {
+		c.apiLog("POST /api/mode refused 409: %v", err)
 		writeError(w, http.StatusConflict, "connected", err.Error())
 		return
 	}
 	persistMode(mode.String())
+	c.apiLog("POST /api/mode: mode=%s (persisted)", mode)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": mode.String()})
 }
 
@@ -525,6 +563,7 @@ func (c *core) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	c.apiLog("POST /api/shutdown accepted; core exiting")
 	// Respond before the process goes away: the request must complete for the
 	// UI to treat its elevated restart as clean.
 	go func() {

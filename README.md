@@ -8,7 +8,7 @@ mode and full-device TUN mode; lives in the system tray.
 ## Architecture
 
 ```
-app/    C# / WinUI 3 GUI (net8.0-windows, unpackaged, self-contained)
+app/    C++/WinRT WinUI 3 GUI (C++20, unpackaged, self-contained)
 core/   Go sidecar openrung-core.exe — wraps connectcore + bundled sing-box,
         exposing a small authenticated loopback JSON/SSE API (see API-CONTRACT.md)
 ```
