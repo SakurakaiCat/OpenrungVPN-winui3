@@ -16,6 +16,7 @@ namespace OpenRung.WinUI
         String DisplayTitle;
         String NodeClass;
         String LatencyText;
+        String TestText;
         Microsoft.UI.Xaml.Media.ImageSource FlagImage;
     }
 

@@ -55,6 +55,29 @@ namespace Services
         bool punchCapable = false;
         int maxMbps = 0;
         std::optional<long> latencyMs; // null: not probed / probe failed
+        // Client-side latency measurements (POST /api/tcping, /api/real-delay);
+        // present only after a test ran. -1 marks a failed rung.
+        std::optional<long> tcpingMs;
+        std::optional<long> realMs;
+    };
+
+    // One relay's TCP handshake measurement (POST /api/tcping).
+    struct TcpingResult
+    {
+        std::wstring relayId;
+        std::wstring host;
+        int port = 0;
+        std::optional<long> avgMs; // null: every sample failed
+        int loss = 0;
+        int samples = 0;
+    };
+
+    // One relay's through-tunnel HTTP latency (POST /api/real-delay).
+    struct RealDelayResult
+    {
+        std::wstring relayId;
+        std::optional<long> ms;
+        std::wstring error;
     };
 
     struct LogLine

@@ -105,6 +105,58 @@ namespace Services
         Notify();
     }
 
+    void RelayStore::SetTesting(bool v)
+    {
+        {
+            std::lock_guard lock(m_mutex);
+            m_testing = v;
+            ++m_revision;
+        }
+        Notify();
+    }
+
+    bool RelayStore::Testing() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_testing;
+    }
+
+    void RelayStore::SetTestStatus(std::wstring s)
+    {
+        {
+            std::lock_guard lock(m_mutex);
+            m_testStatus = std::move(s);
+            ++m_revision;
+        }
+        Notify();
+    }
+
+    std::wstring RelayStore::TestStatus() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_testStatus;
+    }
+
+    void RelayStore::ApplyLatency(std::wstring const& id, std::optional<long> tcpingMs,
+        std::optional<long> realMs)
+    {
+        {
+            std::lock_guard lock(m_mutex);
+            for (auto& relay : m_relays)
+            {
+                if (relay.id != id)
+                    continue;
+                if (tcpingMs)
+                    relay.tcpingMs = tcpingMs;
+                if (realMs)
+                    relay.realMs = realMs;
+                ++m_revision;
+                break;
+            }
+        }
+        Notify();
+    }
+
     void RelayStore::Notify()
     {
         std::vector<Listener> snapshot;

@@ -6,6 +6,7 @@
 
 #include "../Models/Dto.h"
 #include "../Services/RelayDirectory.h"
+#include "../Services/CoreSupervisor.h"
 #include "StateUi.h"
 #include "../Models/RelayRow.h"
 
@@ -51,6 +52,121 @@ namespace winrt::OpenRung::WinUI::implementation
         Services::RelayDirectory::SelectLowestLatency();
     }
 
+    void ServersPage::Tcping_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        auto& store = Services::RelayStore::Instance();
+        if (store.Testing())
+            return; // busy gating: no racing double-runs
+        std::vector<std::wstring> ids;
+        for (auto const& relay : store.Relays())
+            ids.push_back(relay.id);
+        if (ids.empty())
+            return;
+
+        store.SetTesting(true);
+        store.SetTestStatus(L"TCPing 测试中…");
+        // Worker thread touches only the singleton store and the API client —
+        // safe if the page is navigated away mid-test.
+        std::thread([ids] {
+            auto& store = Services::RelayStore::Instance();
+            try
+            {
+                auto& api = Services::CoreSupervisor::Instance().Core().EnsureRunning(false);
+                auto results = api.Tcping(ids);
+                for (auto const& result : results)
+                    store.ApplyLatency(result.relayId, result.avgMs ? *result.avgMs : -1L,
+                        std::nullopt);
+                int ok = 0;
+                for (auto const& result : results)
+                    if (result.avgMs) ++ok;
+                store.SetTestStatus(L"TCPing 完成：" + std::to_wstring(ok) + L"/" +
+                                    std::to_wstring(results.size()) + L" 成功");
+            }
+            catch (std::exception const& ex)
+            {
+                store.SetTestStatus(L"TCPing 失败：" + Services::Utf8ToWide(ex.what()));
+            }
+            store.SetTesting(false);
+        }).detach();
+    }
+
+    void ServersPage::RealDelay_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        auto& store = Services::RelayStore::Instance();
+        if (store.Testing())
+            return;
+        auto relays = store.Relays();
+        if (relays.empty())
+            return;
+
+        try
+        {
+            auto& api = Services::CoreSupervisor::Instance().Core().EnsureRunning(false);
+            auto state = api.GetState();
+            if (state.status != L"disconnected")
+            {
+                store.SetTestStatus(L"真延迟测试需要先断开连接（当前状态：" + state.status + L"）");
+                return;
+            }
+            if (state.mode == L"tun")
+            {
+                store.SetTestStatus(L"TUN 模式下无法逐节点测试，请先切回代理模式");
+                return;
+            }
+        }
+        catch (std::exception const&)
+        {
+            // The per-relay loop below surfaces core boot failures.
+        }
+
+        store.SetTesting(true);
+        store.SetTestStatus(L"真延迟测试中…");
+        std::thread([relays] {
+            auto& store = Services::RelayStore::Instance();
+            int total = static_cast<int>(relays.size());
+            int done = 0;
+            int failures = 0;
+            std::wstring firstError;
+            try
+            {
+                auto& api = Services::CoreSupervisor::Instance().Core().EnsureRunning(false);
+                for (auto const& relay : relays)
+                {
+                    if (!store.Testing())
+                        return; // page is gone or a refresh reset the run
+                    store.SetTestStatus(L"真延迟 " + std::to_wstring(done + 1) + L"/" +
+                                        std::to_wstring(total) + L"：" +
+                                        Services::RelayDirectory::DisplayTitleOf(relay));
+                    auto result = api.RealDelay(relay.id);
+                    if (result.ms)
+                    {
+                        store.ApplyLatency(result.relayId, std::nullopt, result.ms);
+                    }
+                    else
+                    {
+                        if (firstError.empty())
+                            firstError = result.error;
+                        store.ApplyLatency(relay.id, std::nullopt, -1L);
+                        ++failures;
+                    }
+                    ++done;
+                }
+            }
+            catch (std::exception const& ex)
+            {
+                if (firstError.empty())
+                    firstError = Services::Utf8ToWide(ex.what());
+                ++failures;
+            }
+            std::wstring status = L"真延迟完成：" + std::to_wstring(total - failures) + L"/" +
+                                  std::to_wstring(total) + L" 成功";
+            if (!firstError.empty())
+                status += L"（首个失败：" + firstError + L"）";
+            store.SetTestStatus(status);
+            store.SetTesting(false);
+        }).detach();
+    }
+
     void ServersPage::RelayList_SelectionChanged(Windows::Foundation::IInspectable const&,
         SelectionChangedEventArgs const&)
     {
@@ -91,6 +207,13 @@ namespace winrt::OpenRung::WinUI::implementation
         ErrorBar().IsOpen(!error.empty());
 
         SummaryText().Text(store.SummaryText());
+
+        auto testStatus = store.TestStatus();
+        TestStatusText().Text(winrt::hstring(testStatus));
+        TestStatusText().Visibility(testStatus.empty() ? Visibility::Collapsed : Visibility::Visible);
+        bool testing = store.Testing();
+        TcpingButton().IsEnabled(!testing);
+        RealDelayButton().IsEnabled(!testing);
 
         auto relays = store.Relays();
         auto selected = store.SelectedId();

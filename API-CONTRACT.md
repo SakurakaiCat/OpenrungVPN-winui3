@@ -102,6 +102,29 @@ Returns ranked relay directory (TCP latency probed, same ranking the connect lad
 ```
 `latencyMs` null when not probed or probe failed. Errors: 502 `{"error":...}`.
 
+### POST /api/tcping
+v2rayN-style TCP handshake test. Body (all optional): `{"relayIds":["..."],"samples":3}`
+(empty `relayIds` = every usable relay; `samples` clamped to 1..5, default 3). Probes
+each relay's public TCP endpoint in parallel (≤8 concurrent dials, engine dialer,
+per-dial timeout = the ranker's 1.5 s), averages successful samples, counts losses:
+```json
+{"results":[{"relayId":"...","host":"...","port":443,"avgMs":42,"loss":0,"samples":3}]}
+```
+`avgMs` null when every sample failed. Errors: 502 `{"error":...}`. Measurement only —
+no engine state change.
+
+### POST /api/real-delay
+v2rayN-style real connection latency — an HTTP `generate_204` that must traverse the
+tunnel (2 samples, faster one counts; "real ping"):
+- **Without body / empty `relayId`**: probes the live session through its mixed inbound
+  (proxy mode) or the captured default network (TUN mode).
+  → `{"relayId":"<active>","ms":123}`; 409 `{"error":...}` when not connected.
+- **With `{"relayId":"..."}`**: runs a throwaway tunnel through that relay using the
+  connect ladder's attempt+probe machinery, never promoted (no engine state change, no
+  OS proxy, no telemetry session). Requires the core to be **disconnected** and **proxy
+  mode** (TUN refuses 502). → `{"relayId":"...","ms":123}`; 502 `{"error":...}` when the
+  rung fails (unreachable relay, WSS fallback exhausted, probe timeout).
+
 ### GET /api/logs?tail=500 → `{"logs":[{"time":"...","line":"..."}]}`
 Default `tail` is 500; the ring holds 2000 lines.
 

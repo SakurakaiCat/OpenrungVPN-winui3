@@ -28,11 +28,23 @@
                     <TextBlock Text="刷新测速" />
                 </StackPanel>
             </Button>
-            <TextBlock
-                Grid.Column="1"
-                x:Name="SummaryText"
-                VerticalAlignment="Center"
-                Style="{StaticResource CaptionTextBlockStyle}" />
+            <Button Grid.Column="0" Click="Refresh_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE72C;" FontSize="12" />
+                    <TextBlock Text="刷新测速" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock
+                    x:Name="SummaryText"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock
+                    x:Name="TestStatusText"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+            </StackPanel>
             <Button Grid.Column="2" Click="AutoSelect_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE945;" FontSize="12" />
@@ -41,8 +53,28 @@
             </Button>
         </Grid>
 
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+            <Button x:Name="TcpingButton" Click="Tcping_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE9D2;" FontSize="12" />
+                    <TextBlock Text="TCPing 测试" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="RealDelayButton" Click="RealDelay_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE9F5;" FontSize="12" />
+                    <TextBlock Text="真延迟测试" />
+                </StackPanel>
+            </Button>
+            <TextBlock
+                x:Name="TestHint"
+                VerticalAlignment="Center"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Text="TCPing：并发握手测速；真延迟：逐个节点经隧道实测（需断开连接）" />
+        </StackPanel>
+
         <ProgressBar
-            Grid.Row="1"
+            Grid.Row="2"
             x:Name="LoadingBar"
             Margin="0,8,0,0"
             IsIndeterminate="False"
@@ -51,7 +83,7 @@
         <!-- Inline error surface: keeps refresh failures visible even before
              the page has a XamlRoot (a ContentDialog would crash there). -->
         <InfoBar
-            Grid.Row="2"
+            Grid.Row="3"
             x:Name="ErrorBar"
             Margin="0,8,0,0"
             IsOpen="False"
@@ -59,7 +91,7 @@
             Title="刷新失败" />
 
         <ListView
-            Grid.Row="3"
+            Grid.Row="4"
             x:Name="RelayList"
             Margin="0,8,0,0"
             SelectionMode="Single"
@@ -71,7 +103,7 @@
                             <ColumnDefinition Width="48" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="130" />
                         </Grid.ColumnDefinitions>
                         <Image
                             Grid.Column="0"
@@ -91,11 +123,15 @@
                             VerticalAlignment="Center"
                             Style="{StaticResource CaptionTextBlockStyle}"
                             Text="{x:Bind NodeClass, Mode=OneTime}" />
-                        <TextBlock
-                            Grid.Column="3"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="{x:Bind LatencyText, Mode=OneTime}" />
+                        <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                            <TextBlock
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="{x:Bind LatencyText, Mode=OneTime}" />
+                            <TextBlock
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                Text="{x:Bind TestText, Mode=OneTime}" />
+                        </StackPanel>
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

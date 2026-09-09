@@ -161,6 +161,77 @@ namespace Services
         return serverTime;
     }
 
+    std::vector<TcpingResult> CoreApiClient::Tcping(std::vector<std::wstring> const& relayIds,
+        int samples)
+    {
+        std::wstring ids;
+        for (size_t i = 0; i < relayIds.size(); ++i)
+        {
+            if (i > 0) ids += L",";
+            ids += L"\"" + relayIds[i] + L"\"";
+        }
+        std::wstring body = L"{\"samples\":" + std::to_wstring(samples);
+        if (!relayIds.empty())
+            body += L",\"relayIds\":[" + ids + L"]";
+        body += L"}";
+        // Parallel dials on the core: ~samples x one 1.5 s probe timeout.
+        auto resp = Post(L"/api/tcping", WideToUtf8(body), 35000);
+        JsonObject obj;
+        if (!JsonObject::TryParse(Utf8ToWide(resp.body), obj))
+            throw CoreApiException(200, {}, L"invalid JSON from /api/tcping");
+        std::vector<TcpingResult> out;
+        if (auto arr = obj.TryLookup(L"results"); arr && arr.ValueType() == JsonValueType::Array)
+        {
+            for (auto const& v : arr.GetArray())
+            {
+                auto const& o = v.GetObjectW();
+                TcpingResult r;
+                if (auto s = o.TryLookup(L"relayId"); s && s.ValueType() == JsonValueType::String)
+                    r.relayId = std::wstring{ s.GetString() };
+                if (auto s = o.TryLookup(L"host"); s && s.ValueType() == JsonValueType::String)
+                    r.host = std::wstring{ s.GetString() };
+                if (auto n = o.TryLookup(L"port"); n && n.ValueType() == JsonValueType::Number)
+                    r.port = static_cast<int>(n.GetNumber());
+                if (auto n = o.TryLookup(L"avgMs"); n && n.ValueType() == JsonValueType::Number)
+                    r.avgMs = static_cast<long>(n.GetNumber());
+                if (auto n = o.TryLookup(L"loss"); n && n.ValueType() == JsonValueType::Number)
+                    r.loss = static_cast<int>(n.GetNumber());
+                if (auto n = o.TryLookup(L"samples"); n && n.ValueType() == JsonValueType::Number)
+                    r.samples = static_cast<int>(n.GetNumber());
+                out.push_back(std::move(r));
+            }
+        }
+        return out;
+    }
+
+    RealDelayResult CoreApiClient::RealDelay(std::wstring const& relayId)
+    {
+        RealDelayResult out;
+        out.relayId = relayId;
+        Http::Response resp;
+        try
+        {
+            std::wstring body;
+            if (!relayId.empty())
+                body = JsonOf({ {L"relayId", relayId} });
+            resp = Send(L"POST", L"/api/real-delay", WideToUtf8(body), 35000);
+        }
+        catch (CoreApiException const& ex)
+        {
+            out.error = ex.WideMessage();
+            return out;
+        }
+        EnsureSuccess(resp, L"POST", L"/api/real-delay");
+        JsonObject obj;
+        if (!JsonObject::TryParse(Utf8ToWide(resp.body), obj))
+            throw CoreApiException(200, {}, L"invalid JSON from /api/real-delay");
+        if (auto s = obj.TryLookup(L"relayId"); s && s.ValueType() == JsonValueType::String)
+            out.relayId = std::wstring{ s.GetString() };
+        if (auto n = obj.TryLookup(L"ms"); n && n.ValueType() == JsonValueType::Number)
+            out.ms = static_cast<long>(n.GetNumber());
+        return out;
+    }
+
     void CoreApiClient::Connect(std::wstring const& brokerUrl, std::wstring const& relayId,
         std::wstring const& country)
     {
