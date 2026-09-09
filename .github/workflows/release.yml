@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag, e.g. v0.1.0-alpha.1'
+        description: 'Release tag, e.g. v0.1.0-alpha.3'
         required: true
-        default: 'v0.1.0-alpha.1'
+        default: 'v0.1.0-alpha.3'
   push:
     tags: ['v*']
 
@@ -32,7 +32,8 @@ jobs:
         working-directory: core
         run: |
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-          go build -tags with_utls -trimpath -ldflags "-s -w" \
+          go build -tags "with_utls with_external_windivert" \
+            -trimpath -ldflags "-s -w" \
             -o ../openrung-core.exe .
 
       - uses: actions/upload-artifact@v4
@@ -42,22 +43,24 @@ jobs:
           if-no-files-found: error
 
   app:
-    name: Build OpenRung.WinUI.exe
+    name: Build OpenRung.WinUI.exe (C++/WinRT)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      # Puts MSBuild and the VC toolchain on PATH.
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          dotnet-version: 8.0.x
+          arch: x64
 
-      - name: Publish app (win-x64, self-contained)
-        run: >
-          dotnet publish app/OpenRung.WinUI/OpenRung.WinUI.csproj
-          -c Release -r win-x64 --self-contained
-          -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true
-          -p:PublishSingleFile=false
-          -o dist-app
+      - name: Build app (Release, win-x64, self-contained)
+        shell: cmd
+        run: |
+          msbuild app\OpenRung.WinUI.Cpp\OpenRung.WinUI.Cpp.vcxproj ^
+            /restore /m /p:Configuration=Release /p:Platform=x64 ^
+            /p:OutDir=${{ github.workspace }}\dist-app\ ^
+            /p:IntDir=${{ github.workspace }}\obj\
+          if errorlevel 1 exit /b 1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -83,7 +86,7 @@ jobs:
       - name: Zip portable dist
         run: |
           chmod +x dist/core/openrung-core.exe
-          test -x dist/OpenRung.WinUI.exe || test -f dist/OpenRung.WinUI.exe
+          test -f dist/OpenRung.WinUI.exe
           cd dist && zip -qr ../OpenRung-win-x64.zip .
 
       - name: Publish pre-release
