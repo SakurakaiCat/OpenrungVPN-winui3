@@ -29,6 +29,16 @@ namespace Services
         void SetLoading(bool v);
         void SetError(std::wstring e);
         void SetRelays(std::vector<RelayInfo> relays, std::wstring summaryText);
+        // Latency testing lifecycle: Testing() gates the servers-page buttons
+        // (and double-runs); TestStatus() carries per-relay progress text.
+        void SetTesting(bool v);
+        bool Testing() const;
+        void SetTestStatus(std::wstring s);
+        std::wstring TestStatus() const;
+        // Merges one relay's test measurement into the current snapshot
+        // (no-op for unknown ids). Called from worker threads per result.
+        void ApplyLatency(std::wstring const& id, std::optional<long> tcpingMs,
+            std::optional<long> realMs);
 
     private:
         mutable std::mutex m_mutex;
@@ -37,6 +47,8 @@ namespace Services
         std::wstring m_summary;
         std::wstring m_error;
         bool m_loading = false;
+        bool m_testing = false;
+        std::wstring m_testStatus;
         long m_revision = 0;
         std::unordered_map<void const*, Listener> m_listeners;
 

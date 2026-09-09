@@ -35,6 +35,8 @@ func (c *core) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/mode", c.handleMode)
 	mux.HandleFunc("/api/proxy", c.handleProxy)
 	mux.HandleFunc("/api/relays", c.handleRelays)
+	mux.HandleFunc("/api/tcping", c.handleTcping)
+	mux.HandleFunc("/api/real-delay", c.handleRealDelay)
 	mux.HandleFunc("/api/logs", c.handleLogs)
 	mux.HandleFunc("/api/heartbeat", c.handleHeartbeat)
 	mux.HandleFunc("/api/shutdown", c.handleShutdown)
@@ -526,6 +528,98 @@ func (c *core) handleRelays(w http.ResponseWriter, r *http.Request) {
 		"serverTime": time.Now().UTC().Format(time.RFC3339),
 		"relays":     relays,
 	})
+}
+
+// ---- POST /api/tcping -------------------------------------------------------
+
+func (c *core) handleTcping(w http.ResponseWriter, r *http.Request) {
+	if !methodOnly(w, r, http.MethodPost) {
+		return
+	}
+	var body struct {
+		RelayIDs []string `json:"relayIds"`
+		Samples  int      `json:"samples"`
+	}
+	if r.Body != nil {
+		data, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		if len(bytes.TrimSpace(data)) > 0 {
+			if err := json.Unmarshal(data, &body); err != nil {
+				writeError(w, http.StatusBadRequest, "", "invalid tcping body: "+err.Error())
+				return
+			}
+		}
+	}
+
+	// Parallel dials: the whole directory costs roughly samples x one probe
+	// timeout. Bound the request well above that so the client gets results
+	// or a real error, never an early cancel.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	results, err := c.engine.TcpingRelays(ctx, body.RelayIDs, body.Samples)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "", "tcping: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+// ---- POST /api/real-delay ---------------------------------------------------
+
+func (c *core) handleRealDelay(w http.ResponseWriter, r *http.Request) {
+	if !methodOnly(w, r, http.MethodPost) {
+		return
+	}
+	var body struct {
+		RelayID string `json:"relayId"`
+	}
+	if r.Body != nil {
+		data, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		if len(bytes.TrimSpace(data)) > 0 {
+			if err := json.Unmarshal(data, &body); err != nil {
+				writeError(w, http.StatusBadRequest, "", "invalid real-delay body: "+err.Error())
+				return
+			}
+		}
+	}
+
+	// With a relay id: a throwaway tunnel through that relay (stateless; the
+	// core must be disconnected). Without one: the live session's tunnel,
+	// probed through its mixed inbound (proxy mode) or the captured default
+	// network (TUN mode).
+	if body.RelayID == "" {
+		info, ok := c.engine.ActiveConnectionInfo()
+		if !ok {
+			writeError(w, http.StatusConflict, "not_connected",
+				"未连接；请在服务器页选择节点后重试，或断开连接后测试单个节点。")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		var ms int64
+		var err error
+		if info.ProxyPort > 0 {
+			ms, err = connectcore.ProbeThroughTunnel(ctx, info.ProxyPort)
+		} else {
+			ms, err = connectcore.ProbeDirect(ctx)
+		}
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "", "real delay: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"relayId": info.Relay.ID, "ms": ms,
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	ms, err := c.engine.TestRelayDelay(ctx, body.RelayID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "", "real delay: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"relayId": body.RelayID, "ms": ms})
 }
 
 // ---- GET /api/logs ----------------------------------------------------------

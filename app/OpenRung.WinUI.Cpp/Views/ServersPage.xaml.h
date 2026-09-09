@@ -18,6 +18,10 @@ namespace winrt::OpenRung::WinUI::implementation
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void AutoSelect_Click(winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void Tcping_Click(winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void RealDelay_Click(winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void RelayList_SelectionChanged(winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
 

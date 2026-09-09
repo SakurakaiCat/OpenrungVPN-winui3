@@ -5,6 +5,9 @@ obj/
 x64/
 *.binlog
 
+# C++/WinRT + XAML compiler generated sources
+app/OpenRung.WinUI.Cpp/Generated Files/
+
 # Visual Studio / Rider
 .vs/
 .idea/

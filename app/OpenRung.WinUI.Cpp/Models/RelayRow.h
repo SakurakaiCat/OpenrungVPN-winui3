@@ -26,6 +26,9 @@ namespace winrt::OpenRung::WinUI::implementation
         winrt::hstring LatencyText() const { return m_latencyText; }
         void LatencyText(winrt::hstring const& value) { m_latencyText = value; }
 
+        winrt::hstring TestText() const { return m_testText; }
+        void TestText(winrt::hstring const& value) { m_testText = value; }
+
         winrt::Microsoft::UI::Xaml::Media::ImageSource FlagImage() const { return m_flagImage; }
         void FlagImage(winrt::Microsoft::UI::Xaml::Media::ImageSource const& value) { m_flagImage = value; }
 
@@ -35,6 +38,7 @@ namespace winrt::OpenRung::WinUI::implementation
         winrt::hstring m_displayTitle;
         winrt::hstring m_nodeClass;
         winrt::hstring m_latencyText;
+        winrt::hstring m_testText;
         winrt::Microsoft::UI::Xaml::Media::ImageSource m_flagImage{ nullptr };
     };
 }
@@ -59,6 +63,19 @@ namespace StateUi
         row.NodeClass(winrt::hstring(relay.nodeClass));
         row.LatencyText(winrt::hstring(
             relay.latencyMs ? std::to_wstring(*relay.latencyMs) + L" ms" : L"未测速"));
+        // Client-side measurements: TCPing (handshake) and real delay
+        // (through-tunnel generate_204). -1 marks a failed rung.
+        std::wstring test;
+        if (relay.tcpingMs)
+            test += (*relay.tcpingMs >= 0 ? L"TCPing " + std::to_wstring(*relay.tcpingMs) + L" ms"
+                                          : L"TCPing 失败");
+        if (relay.realMs)
+        {
+            if (!test.empty()) test += L" · ";
+            test += (*relay.realMs >= 0 ? L"真延迟 " + std::to_wstring(*relay.realMs) + L" ms"
+                                        : L"真延迟 失败");
+        }
+        row.TestText(winrt::hstring(test));
         // Bundled flag images from the public-domain flagcdn set; Windows has
         // no flag-glyph emoji, so the list binds real images.
         if (relay.countryCode.size() == 2)

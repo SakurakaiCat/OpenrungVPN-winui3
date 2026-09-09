@@ -23,6 +23,11 @@ namespace Services
         StateSnapshot GetState();
         std::vector<LogLine> GetLogs(int tail = 500);
         std::wstring GetRelays(std::vector<RelayInfo>& relaysOut); // returns serverTime
+        // Parallel TCP handshake test (empty ids = every usable relay).
+        std::vector<TcpingResult> Tcping(std::vector<std::wstring> const& relayIds, int samples = 3);
+        // Through-tunnel HTTP probe; empty relayId = the live session's relay.
+        // Never throws for a failed rung — the error lands in .error.
+        RealDelayResult RealDelay(std::wstring const& relayId);
         void Connect(std::wstring const& brokerUrl, std::wstring const& relayId, std::wstring const& country);
         void Disconnect();
         std::optional<std::wstring> SetMode(std::wstring const& mode); // echoed mode when provided
