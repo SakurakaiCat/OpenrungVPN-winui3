@@ -1,8 +1,9 @@
 name: release
 
-# Builds the portable dist (WinUI app + Go core sidecar) and publishes a
-# pre-release zip. Runs on manual dispatch with a version input, or on a
-# pushed v* tag (which names the release).
+# Builds the portable dist (WinUI app + Go core sidecar), packages it as both
+# a portable zip and an Inno Setup installer, and publishes the release.
+# Runs on manual dispatch with a version input, or on a pushed v* tag (which
+# names the release; dispatch builds land as pre-releases).
 
 on:
   workflow_dispatch:
@@ -16,6 +17,12 @@ on:
 
 permissions:
   contents: write
+
+# One release pipeline per ref at a time; superseded dispatch runs are
+# cancelled, tag builds are never cancelled mid-publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
   core:
@@ -48,6 +55,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The restore pulls the WindowsAppSDK / CppWinRT / WebView2 NuGet
+      # packages every run; cache the global packages folder keyed on the
+      # project file that pins their versions.
+      - uses: actions/cache@v4
+        with:
+          path: ~\.nuget\packages
+          key: nuget-win-x64-${{ hashFiles('app/OpenRung.WinUI.Cpp/OpenRung.WinUI.Cpp.vcxproj') }}
+          restore-keys: nuget-win-x64-
+
       # Puts MSBuild and the VC toolchain on PATH.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -68,11 +84,13 @@ jobs:
           path: dist-app
           if-no-files-found: error
 
-  release:
-    name: Assemble dist and publish release
+  package:
+    name: Package portable zip + installer
     needs: [core, app]
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: core
@@ -83,21 +101,68 @@ jobs:
           name: app
           path: dist
 
-      - name: Zip portable dist
+      # MSBuild may stage the app under dist/OpenRung.WinUI/ — flatten.
+      - name: Flatten app output
+        shell: bash
         run: |
-          chmod +x dist/core/openrung-core.exe
-          # MSBuild may stage the app under dist/OpenRung.WinUI/ — flatten.
           if [ -d dist/OpenRung.WinUI ]; then
             mv dist/OpenRung.WinUI/* dist/
             rmdir dist/OpenRung.WinUI
           fi
           test -f dist/OpenRung.WinUI.exe
-          cd dist && zip -qr ../OpenRung-win-x64.zip .
+          test -f dist/core/openrung-core.exe
+
+      - name: Zip portable dist
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath OpenRung-win-x64.zip -CompressionLevel Optimal
+
+      # The app links the dynamic CRT; bundle the VC++ redistributable for
+      # the installer (aka.ms is Microsoft's stable permalink).
+      - name: Fetch VC++ redistributable
+        shell: pwsh
+        run: Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile vc_redist.x64.exe
+
+      - name: Build installer (Inno Setup)
+        shell: cmd
+        run: |
+          where iscc >nul 2>&1 || choco install innosetup -y --no-progress
+          where iscc >nul 2>&1 || set "PATH=%PATH%;C:\Program Files (x86)\Inno Setup 6"
+          iscc /DAppVersion=${{ inputs.version || github.ref_name }} scripts\installer.iss
+          if errorlevel 1 exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-zip
+          path: OpenRung-win-x64.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: installer-out/OpenRung-Setup-*-x64.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: portable-zip
+          path: .
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: .
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version || github.ref_name }}
           name: ${{ inputs.version || github.ref_name }}
-          prerelease: false
-          files: OpenRung-win-x64.zip
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}
+          files: |
+            OpenRung-win-x64.zip
+            OpenRung-Setup-*-x64.exe
