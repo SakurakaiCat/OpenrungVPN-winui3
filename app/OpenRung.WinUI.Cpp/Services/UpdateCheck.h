@@ -5,7 +5,7 @@ namespace Services
 {
     /// This build's version; MUST match the published release tag format
     /// (v-prefixed semantic triple, optional -suffix).
-    inline constexpr wchar_t AppVersion[] = L"v0.1.0";
+    inline constexpr wchar_t AppVersion[] = L"v0.1.1";
 
     /// The GitHub release the update check looks at.
     inline constexpr wchar_t UpdateRepo[] = L"SakurakaiCat/OpenrungVPN-winui3";
