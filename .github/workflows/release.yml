@@ -34,6 +34,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
 
       - name: Build core (windows/amd64)
         working-directory: core
@@ -139,7 +140,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installer
-          path: installer-out/OpenRung-Setup-*-x64.exe
+          path: scripts/installer-out/OpenRung-Setup-*-x64.exe
           if-no-files-found: error
 
   release:
