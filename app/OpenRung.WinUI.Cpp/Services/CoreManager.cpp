@@ -62,18 +62,30 @@ namespace Services
         if (::GetFileAttributesW(sibling.c_str()) != INVALID_FILE_ATTRIBUTES)
             return sibling;
         // Dev convenience: <repo>\dist\core\openrung-core.exe from a source checkout.
-        return dir + L"\\..\\..\\..\\..\\..\\dist\\core\\openrung-core.exe";
+        auto fallback = dir + L"\\..\\..\\..\\..\\..\\dist\\core\\openrung-core.exe";
+        if (::GetFileAttributesW(fallback.c_str()) != INVALID_FILE_ATTRIBUTES)
+            return fallback;
+        throw std::runtime_error(
+            "openrung-core.exe not found (looked in: " + WideToUtf8(sibling) +
+            "); 移动或安装时请保留程序目录中的 core 子目录");
     }
 
     CoreApiClient& CoreManager::EnsureRunning(bool elevated)
     {
+        // Serialize the whole probe/adopt/spawn sequence: callers race (app
+        // startup thread vs. first relay load), and a second caller seeing a
+        // live process but no m_api yet (spawn in flight) used to spawn a
+        // rival core, which the contract's single-instance check then killed
+        // (exit code 2) — surfacing as "core startup failed" while the first
+        // core ran fine and was adopted seconds later.
+        std::lock_guard ensure(m_ensureLock);
         {
             std::lock_guard lock(m_gate);
             bool haveLiveProc = m_process &&
                 ::WaitForSingleObject(m_process.get(), 0) == WAIT_TIMEOUT;
             if (!haveLiveProc)
             {
-                auto adopted = TryAdopt();
+                auto adopted = TryAdopt(elevated);
                 if (adopted)
                 {
                     m_endpoint = std::move(adopted);
@@ -89,6 +101,17 @@ namespace Services
             else if (m_api)
             {
                 return *m_api;
+            }
+            else
+            {
+                // Live process without m_api: a previous spawn failed between
+                // CreateProcess and endpoint adoption. Kill the orphan so the
+                // adopt/spawn below starts clean instead of fighting the
+                // contract's single-instance check (exit code 2).
+                AppLog::Write(L"killing orphaned core process from a failed spawn");
+                ::TerminateProcess(m_process.get(), 1);
+                ::WaitForSingleObject(m_process.get(), 2000);
+                m_process.reset();
             }
         }
 
@@ -112,14 +135,23 @@ namespace Services
         return *m_api;
     }
 
-    std::optional<CoreManager::Endpoint> CoreManager::TryAdopt()
+    std::optional<CoreManager::Endpoint> CoreManager::TryAdopt(bool requireElevated)
     {
         auto ep = ReadEndpointFile();
         if (!ep) return std::nullopt;
         try
         {
             CoreApiClient probe(ep->port, ep->token);
-            probe.GetVersion();
+            auto version = probe.GetVersion();
+            if (requireElevated && !version.elevated)
+            {
+                // Refuse the adoption: the caller asked for the elevated
+                // restart, and re-adopting the unprivileged core would loop
+                // the 428 dialog forever without ever spawning elevated.
+                AppLog::Write(L"running core (PID " + std::to_wstring(ep->pid) +
+                    L") is not elevated; respawning elevated instead");
+                return std::nullopt;
+            }
             if (ProcessAlive(ep->pid))
                 return ep;
         }
@@ -460,6 +492,35 @@ namespace Services
         {
             ::TerminateProcess(proc, 1);
             ::WaitForSingleObject(proc, 2000);
+        }
+
+        // Adopted cores have no process handle; the graceful shutdown above
+        // usually works, but if it does not, the still-running unprivileged
+        // core would be re-adopted by the next EnsureRunning and the TUN
+        // elevation restart would silently never happen. Wait on the PID,
+        // then hard-kill.
+        int adoptedPid = 0;
+        {
+            std::lock_guard lock(m_gate);
+            if (!m_process && m_endpoint) adoptedPid = m_endpoint->pid;
+        }
+        if (adoptedPid)
+        {
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+            while (ProcessAlive(adoptedPid) && std::chrono::steady_clock::now() < deadline)
+                ::Sleep(100);
+            if (ProcessAlive(adoptedPid))
+            {
+                if (HANDLE hard = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE,
+                        static_cast<DWORD>(adoptedPid)))
+                {
+                    AppLog::Write(L"core shutdown timed out; terminating PID " +
+                        std::to_wstring(adoptedPid));
+                    ::TerminateProcess(hard, 1);
+                    ::WaitForSingleObject(hard, 2000);
+                    ::CloseHandle(hard);
+                }
+            }
         }
 
         if (m_heartbeatThread.joinable()) m_heartbeatThread.join();

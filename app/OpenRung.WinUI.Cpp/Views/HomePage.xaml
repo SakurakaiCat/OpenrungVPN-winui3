@@ -75,6 +75,24 @@
                     Style="{StaticResource CaptionTextBlockStyle}"
                     Text="disconnected · proxy" />
 
+                <!-- Core boot hint: visible until the first EnsureRunning settles. -->
+                <StackPanel
+                    x:Name="CoreBootBar"
+                    Margin="0,4,0,0"
+                    HorizontalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Visibility="Collapsed">
+                    <ProgressRing
+                        Width="16"
+                        Height="16"
+                        IsActive="True" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="正在启动核心…" />
+                </StackPanel>
+
                 <TextBlock
                     x:Name="ElapsedText"
                     HorizontalAlignment="Center"

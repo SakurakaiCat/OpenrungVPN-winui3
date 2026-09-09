@@ -46,7 +46,8 @@ namespace Services::Http
         std::wstring const& path,
         std::wstring const& extraHeaders,
         std::string const& body,
-        unsigned timeoutMs)
+        unsigned timeoutMs,
+        bool secure)
     {
         Handle session{ ::WinHttpOpen(L"OpenRung-WinUI/1.0",
             WINHTTP_ACCESS_TYPE_NO_PROXY,
@@ -65,7 +66,8 @@ namespace Services::Http
         if (!connect) ThrowLastError("WinHttpConnect");
 
         Handle request{ ::WinHttpOpenRequest(connect, verb.c_str(), path.c_str(),
-            nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0) };
+            nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+            secure ? WINHTTP_FLAG_SECURE : 0) };
         if (!request) ThrowLastError("WinHttpOpenRequest");
 
         if (!extraHeaders.empty() &&

@@ -3,6 +3,7 @@
 #include "RelayDirectory.h"
 #include "CoreSupervisor.h"
 #include "AppLog.h"
+#include "AppState.h"
 #include "../Models/NameTables.h"
 
 #include <cwctype>
@@ -183,6 +184,41 @@ namespace Services
         store.SetRelays(std::move(relays), summary);
         if (store.SelectedId().empty())
             SelectLowestLatency();
+    }
+
+    void RelayDirectory::StartAutoRefresh()
+    {
+        static std::once_flag once;
+        std::call_once(once, [] {
+            std::thread([] {
+                // The core's /api/relays?ranked=1 re-probes upstream latency
+                // (availability) on every call, so each refresh is a live
+                // availability pass, not a cached copy.
+                for (;;)
+                {
+                    std::this_thread::sleep_for(std::chrono::seconds(60));
+                    auto& store = RelayStore::Instance();
+                    if (store.Loading())
+                        continue;
+                    if (AppState::Instance().CoreBooting())
+                        continue; // the startup path will Load() when ready
+                    try
+                    {
+                        auto before = static_cast<long>(store.Relays().size());
+                        Load();
+                        auto after = static_cast<long>(RelayStore::Instance().Relays().size());
+                        if (before != after)
+                            AppLog::Write(L"relay directory updated: " +
+                                std::to_wstring(after) + L" 个节点");
+                    }
+                    catch (std::exception const& ex)
+                    {
+                        // Keep the last good list; note the failure in the log.
+                        AppLog::Write(L"relay auto-refresh failed: " + Utf8ToWide(ex.what()));
+                    }
+                }
+            }).detach();
+        });
     }
 
     void RelayDirectory::SelectLowestLatency()

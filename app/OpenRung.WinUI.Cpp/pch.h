@@ -13,6 +13,7 @@
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
 
 #include <winrt/Microsoft.UI.Composition.h>
@@ -33,6 +34,7 @@
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>

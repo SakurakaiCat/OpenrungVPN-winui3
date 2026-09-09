@@ -183,6 +183,7 @@
     <ClCompile Include="Services\InterceptionDiagnostics.cpp" />
     <ClCompile Include="Services\RelayDirectory.cpp" />
     <ClCompile Include="Services\TrayIcon.cpp" />
+    <ClCompile Include="Services\UpdateCheck.cpp" />
     <ClCompile Include="Views\MainWindow.xaml.cpp">
       <DependentUpon>Views\MainWindow.xaml</DependentUpon>
     </ClCompile>

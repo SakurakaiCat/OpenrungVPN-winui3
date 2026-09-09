@@ -10,6 +10,7 @@
 #include "../Services/AppState.h"
 #include "../Services/CoreApiClient.h"
 #include "../Services/CoreSupervisor.h"
+#include "../Services/UpdateCheck.h"
 #include "StateUi.h"
 
 using namespace winrt;
@@ -39,6 +40,8 @@ namespace winrt::OpenRung::WinUI::implementation
 
     void SettingsPage::OnLoaded()
     {
+        AppVersionText().Text(L"当前版本：" + std::wstring(Services::AppVersion));
+
         // Reflect the persisted engine mode without firing the handler.
         SetComboIndex(Services::AppState::Instance().Current().mode == L"tun" ? 1 : 0);
 
@@ -145,6 +148,79 @@ namespace winrt::OpenRung::WinUI::implementation
                 ClearProxyButton().IsEnabled(true);
             });
         }).detach();
+    }
+
+    void SettingsPage::CheckUpdate_Click(Windows::Foundation::IInspectable const&,
+        RoutedEventArgs const&)
+    {
+        if (m_updateBusy)
+            return;
+        m_updateBusy = true;
+        CheckUpdateButton().IsEnabled(false);
+        UpdateStatusText().Text(L"正在检查更新…");
+
+        auto weak = m_lifetime.Weak();
+        std::thread([this, weak] {
+            std::wstring failure;
+            std::optional<Services::UpdateInfo> update;
+            try
+            {
+                update = Services::CheckForUpdate();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+
+            Services::Ui::Post([this, weak, update = std::move(update), failure] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_updateBusy = false;
+                CheckUpdateButton().IsEnabled(true);
+
+                if (!failure.empty())
+                {
+                    UpdateStatusText().Text(L"检查失败");
+                    ShowDialog(L"检查更新失败", failure, {}, L"关闭");
+                    return;
+                }
+                if (!update)
+                {
+                    UpdateStatusText().Text(L"已是最新版本");
+                    ShowDialog(L"检查更新",
+                        std::wstring(L"当前已是最新版本（") + Services::AppVersion + L"）。",
+                        {}, L"好");
+                    return;
+                }
+
+                UpdateStatusText().Text(L"发现新版本 " + update->tag);
+                ShowUpdateDialog(*update);
+            });
+        }).detach();
+    }
+
+    void SettingsPage::ShowUpdateDialog(Services::UpdateInfo const& update)
+    {
+        ContentDialog dialog;
+        dialog.Title(box_value(L"发现新版本 " + winrt::hstring(update.tag)));
+        dialog.Content(box_value(std::wstring(L"当前版本 ") + Services::AppVersion
+            + L"，最新版本 " + update.tag + L"。\n\n请前往 GitHub Releases 页面下载新的压缩包并解压替换。"));
+        dialog.PrimaryButtonText(L"前往下载");
+        dialog.CloseButtonText(L"关闭");
+        dialog.DefaultButton(ContentDialogButton::Primary);
+        dialog.XamlRoot(XamlRoot());
+
+        dialog.ShowAsync().Completed([page = update.pageUrl](
+            Windows::Foundation::IAsyncOperation<ContentDialogResult> const& async,
+            Windows::Foundation::AsyncStatus status) {
+            if (status != Windows::Foundation::AsyncStatus::Completed)
+                return;
+            if (async.get() != ContentDialogResult::Primary)
+                return;
+            // Open the release page in the default browser.
+            winrt::Windows::System::Launcher::LaunchUriAsync(
+                Windows::Foundation::Uri(page));
+        });
     }
 
     bool SettingsPage::ComboModeIsTun()

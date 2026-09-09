@@ -74,6 +74,11 @@ namespace Services
         static constexpr auto StartupTimeout = std::chrono::seconds(15);
 
         mutable std::mutex m_gate;
+        /// Serializes the whole probe/adopt/spawn sequence: EnsureRunning
+        /// runs on several threads (app startup, relay load, connect) and a
+        /// second caller must never spawn a rival core while the first is
+        /// between Spawn and endpoint adoption.
+        std::mutex m_ensureLock;
         detail::UniqueHandle m_process;
         detail::UniqueHandle m_stopEvent;
         detail::UniqueHandle m_exitEvent;
@@ -84,7 +89,7 @@ namespace Services
         std::atomic<bool> m_stopping{ false };
         std::atomic<bool> m_exitedSignaled{ false };
 
-        std::optional<Endpoint> TryAdopt();
+        std::optional<Endpoint> TryAdopt(bool requireElevated);
         void Spawn(bool elevated);
         Endpoint WaitForEndpoint();
         static std::optional<Endpoint> ReadEndpointFile();

@@ -49,6 +49,11 @@ namespace Services
     namespace RelayDirectory
     {
         void Load();  // fetch + assign titles + publish (throws)
+        /// Starts the once-per-minute background refresh: re-fetches the
+        /// ranked directory (the core re-probes upstream availability each
+        /// time) and publishes updates; selection is preserved. Errors are
+        /// logged, never surfaced — the last good list stays visible.
+        void StartAutoRefresh();
         void SelectLowestLatency(); // pick lowest-latency probed relay
         /// Title helpers exposed for the home page card.
         std::wstring CountryName(RelayInfo const& relay);

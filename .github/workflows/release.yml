@@ -10,7 +10,7 @@ on:
       version:
         description: 'Release tag, e.g. v0.1.0-alpha.3'
         required: true
-        default: 'v0.1.0-alpha.3'
+        default: 'v0.1.0'
   push:
     tags: ['v*']
 
@@ -69,7 +69,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Assemble dist and publish pre-release
+    name: Assemble dist and publish release
     needs: [core, app]
     runs-on: ubuntu-latest
     steps:
@@ -94,10 +94,10 @@ jobs:
           test -f dist/OpenRung.WinUI.exe
           cd dist && zip -qr ../OpenRung-win-x64.zip .
 
-      - name: Publish pre-release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version || github.ref_name }}
           name: ${{ inputs.version || github.ref_name }}
-          prerelease: true
+          prerelease: false
           files: OpenRung-win-x64.zip

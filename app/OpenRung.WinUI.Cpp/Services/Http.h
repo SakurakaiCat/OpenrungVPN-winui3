@@ -51,7 +51,8 @@ namespace Services::Http
         std::wstring const& path,
         std::wstring const& extraHeaders, // CRLF-terminated, may be empty
         std::string const& body,          // may be empty
-        unsigned timeoutMs);
+        unsigned timeoutMs,
+        bool secure = false);             // HTTPS (github API / release check)
 
     /// Open a streaming GET: returns connected handles; caller reads with
     /// StreamRead and closes with StreamClose. Throws TransportError.
