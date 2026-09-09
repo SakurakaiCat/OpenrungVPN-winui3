@@ -1,0 +1,954 @@
+package connectcore
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/openrung/openrung/brokerapi"
+	"github.com/openrung/openrung/wsscore"
+
+	"github.com/openrung/openrung/connectcore/client"
+)
+
+const (
+	testWSSFrontAURL = "wss://a.cdn.example/api/v1/wss-bridge"
+	testWSSFrontBURL = "wss://b.cdn.example/api/v1/wss-bridge"
+)
+
+type fakeWSSBridge struct {
+	host string
+	port int
+
+	fatal   chan error
+	started chan struct{}
+	exited  chan struct{}
+
+	startOnce  sync.Once
+	exitOnce   sync.Once
+	closeCalls atomic.Int32
+	end        atomic.Int32
+}
+
+func (b *fakeWSSBridge) SessionEnd() wsscore.SessionEnd {
+	return wsscore.SessionEnd(b.end.Load())
+}
+
+func (b *fakeWSSBridge) setSessionEnd(end wsscore.SessionEnd) {
+	b.end.Store(int32(end))
+}
+
+func newFakeWSSBridge() *fakeWSSBridge {
+	return &fakeWSSBridge{
+		host: "127.0.0.1", port: 43123,
+		fatal: make(chan error, 1), started: make(chan struct{}), exited: make(chan struct{}),
+	}
+}
+
+func (b *fakeWSSBridge) Endpoint() (string, int) { return b.host, b.port }
+
+func (b *fakeWSSBridge) Serve(ctx context.Context) error {
+	b.startOnce.Do(func() { close(b.started) })
+	defer b.exitOnce.Do(func() { close(b.exited) })
+	select {
+	case err := <-b.fatal:
+		return err
+	case <-ctx.Done():
+		return nil
+	}
+}
+
+func (b *fakeWSSBridge) Close() error {
+	b.closeCalls.Add(1)
+	return nil
+}
+
+func testWSSFront(id, rawURL string) brokerapi.RelayWSSFront {
+	return brokerapi.RelayWSSFront{ID: id, URL: rawURL, ProtocolVersion: wsscore.ProtocolVersion}
+}
+
+func relayWithWSS(id, countryCode, city, country, host string, fronts ...brokerapi.RelayWSSFront) brokerapi.RelayDescriptor {
+	candidate := relayAt(id, countryCode, city, country, host)
+	candidate.NodeClass = brokerapi.NodeClassFoundation
+	candidate.Transport = brokerapi.TransportDirect
+	if len(fronts) == 0 {
+		fronts = []brokerapi.RelayWSSFront{testWSSFront("front-a", testWSSFrontAURL)}
+	}
+	candidate.WSSFronts = fronts
+	return candidate
+}
+
+func successfulWSSTicket(front brokerapi.RelayWSSFront, value string) brokerapi.WSSTicketResponse {
+	return brokerapi.WSSTicketResponse{Ticket: value, ExpiresAt: time.Now().Add(time.Minute), URL: front.URL}
+}
+
+func waitWSSSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func TestSupportedWSSFrontsRequiresCanonicalEligibleRelay(t *testing.T) {
+	frontA := testWSSFront("front-a", testWSSFrontAURL)
+	frontB := testWSSFront("front-b", testWSSFrontBURL)
+	eligible := relayWithWSS("relay-a", "IR", "Tehran", "Iran", "192.0.2.10", frontA, frontB)
+	if got := supportedWSSFronts(eligible); !reflect.DeepEqual(got, []brokerapi.RelayWSSFront{frontA, frontB}) {
+		t.Fatalf("supported fronts = %+v", got)
+	}
+
+	tests := map[string]func(*brokerapi.RelayDescriptor){
+		"volunteer": func(candidate *brokerapi.RelayDescriptor) { candidate.NodeClass = brokerapi.NodeClassVolunteer },
+		"tunnel":    func(candidate *brokerapi.RelayDescriptor) { candidate.Transport = brokerapi.TransportTunnel },
+		"exit mode": func(candidate *brokerapi.RelayDescriptor) { candidate.ExitMode = brokerapi.ExitModeDedicated },
+		"port":      func(candidate *brokerapi.RelayDescriptor) { candidate.PublicPort = 4443 },
+		"reordered": func(candidate *brokerapi.RelayDescriptor) {
+			candidate.WSSFronts[0], candidate.WSSFronts[1] = candidate.WSSFronts[1], candidate.WSSFronts[0]
+		},
+		"bad URL": func(candidate *brokerapi.RelayDescriptor) {
+			candidate.WSSFronts[0].URL = "wss://shared.example/another-path"
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := eligible
+			candidate.WSSFronts = append([]brokerapi.RelayWSSFront(nil), eligible.WSSFronts...)
+			mutate(&candidate)
+			if got := supportedWSSFronts(candidate); len(got) != 0 {
+				t.Fatalf("unsafe fronts accepted: %+v", got)
+			}
+		})
+	}
+}
+
+func TestWSSTicketBrokerFailoverAndBoundedRetryAfter(t *testing.T) {
+	servingFront := brokerapi.CloudFrontBrokerURL
+	fronts := wssTicketBrokerFronts(servingFront)
+	wantFronts := []string{brokerapi.CloudFrontBrokerURL, brokerapi.DefaultBrokerURL}
+	if !reflect.DeepEqual(fronts, wantFronts) {
+		t.Fatalf("ticket broker fronts = %v", fronts)
+	}
+
+	s := New()
+	// A budget the clamped 30s wait can fit into: with the default 15s shared
+	// deadline the wait-fits gate would (correctly) skip the wait entirely —
+	// the mobile clamp tests configure a custom policy the same way.
+	s.wssTicketBudget = time.Hour
+	conn := &connection{brokerURL: servingFront}
+	var calls []string
+	s.requestWSSTicket = func(_ context.Context, brokerURL string, request brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		calls = append(calls, brokerURL)
+		if request.RelayID != "relay-a" || request.FrontID != "front-a" {
+			t.Fatalf("ticket request = %+v", request)
+		}
+		if len(calls) <= len(fronts) {
+			return brokerapi.WSSTicketResponse{}, &client.WSSTicketStatusError{
+				StatusCode: 429, RetryAfter: time.Minute,
+			}
+		}
+		return successfulWSSTicket(testWSSFront("front-a", testWSSFrontAURL), "new-ticket"), nil
+	}
+	var waits []time.Duration
+	s.waitWSSRetry = func(_ context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return nil
+	}
+
+	response, err := s.requestWSSSessionTicket(t.Context(), conn, brokerapi.WSSTicketRequest{RelayID: "relay-a", FrontID: "front-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Ticket != "new-ticket" || len(calls) != len(fronts)+1 {
+		t.Fatalf("response=%+v calls=%v", response, calls)
+	}
+	wantCalls := []string{brokerapi.CloudFrontBrokerURL, brokerapi.DefaultBrokerURL, brokerapi.CloudFrontBrokerURL}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("ticket broker calls = %v, want %v", calls, wantCalls)
+	}
+	if len(waits) != 1 || waits[0] != wssTicketMaxRetry {
+		t.Fatalf("bounded Retry-After waits = %v", waits)
+	}
+	if !conn.wssTicketRetryUsed {
+		t.Fatal("one-per-ladder retry was not consumed")
+	}
+}
+
+func TestWSSTicketRequestsExcludeEndpointUnboundAzureFronts(t *testing.T) {
+	tests := map[string]string{
+		"built-in Azure front":                 brokerapi.AzureBrokerURL,
+		"another native Azure Front Door name": "https://ANOTHER-NATIVE-FRONT.z01.AzureFD.net:443/",
+	}
+	wantCalls := []string{brokerapi.DefaultBrokerURL, brokerapi.CloudFrontBrokerURL}
+	request := brokerapi.WSSTicketRequest{RelayID: "relay-a", FrontID: "front-a"}
+
+	for name, servingFront := range tests {
+		t.Run(name, func(t *testing.T) {
+			s := New()
+			conn := &connection{brokerURL: servingFront}
+			var calls []string
+			s.requestWSSTicket = func(_ context.Context, brokerURL string, got brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+				calls = append(calls, brokerURL)
+				if brokerapi.EndpointUnboundBrokerFront(brokerURL) {
+					t.Fatalf("WSS bearer ticket request used endpoint-unbound front %q", brokerURL)
+				}
+				if got != request {
+					t.Fatalf("ticket request = %+v, want %+v", got, request)
+				}
+				if brokerURL == brokerapi.DefaultBrokerURL {
+					return brokerapi.WSSTicketResponse{}, errors.New("first strong front unavailable")
+				}
+				return successfulWSSTicket(testWSSFront("front-a", testWSSFrontAURL), "strong-front-ticket"), nil
+			}
+
+			response, err := s.requestWSSSessionTicket(t.Context(), conn, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.Ticket != "strong-front-ticket" {
+				t.Fatalf("ticket = %q", response.Ticket)
+			}
+			if !reflect.DeepEqual(calls, wantCalls) {
+				t.Fatalf("ticket broker calls = %v, want %v", calls, wantCalls)
+			}
+		})
+	}
+}
+
+func TestWSSDirectSuccessNeverRequestsTicket(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	var tickets, dials atomic.Int32
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		tickets.Add(1)
+		return successfulWSSTicket(fixture.WSSFronts[0], "unused"), nil
+	}
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) {
+		dials.Add(1)
+		return newFakeWSSBridge(), nil
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	if tickets.Load() != 0 || dials.Load() != 0 {
+		t.Fatalf("direct success used WSS: tickets=%d dials=%d", tickets.Load(), dials.Load())
+	}
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+}
+
+func TestWSSLocalSetupFailuresDoNotRequestTicketsOrDamageHealth(t *testing.T) {
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	tests := map[string]func(*Engine, chan struct{}) brokerapi.RelayDescriptor{
+		"config": func(_ *Engine, _ chan struct{}) brokerapi.RelayDescriptor {
+			invalid := fixture
+			invalid.ClientID = ""
+			return invalid
+		},
+		"temp file": func(service *Engine, _ chan struct{}) brokerapi.RelayDescriptor {
+			service.TunnelRuntime = tunnelRuntimeFunc(func(context.Context, []byte) (TunnelRun, error) {
+				return nil, markLocalCandidateError("config_file", errors.New("temporary config unavailable"))
+			})
+			return fixture
+		},
+		"start or bind": func(service *Engine, _ chan struct{}) brokerapi.RelayDescriptor {
+			service.TunnelRuntime = runFuncRuntime(func(context.Context, []byte) error {
+				return errors.New("sing-box could not bind local inbound")
+			})
+			return fixture
+		},
+		"ready timeout": func(service *Engine, _ chan struct{}) brokerapi.RelayDescriptor {
+			service.tunnelReady = func(context.Context, int) error { return errors.New("local inbound not ready") }
+			service.tunnelReadyLimit = 30 * time.Millisecond
+			return fixture
+		},
+		"process exit during probe": func(service *Engine, probeStarted chan struct{}) brokerapi.RelayDescriptor {
+			exit := make(chan struct{})
+			service.TunnelRuntime = runFuncRuntime(func(ctx context.Context, _ []byte) error {
+				select {
+				case <-exit:
+					return errors.New("sing-box exited during probe")
+				case <-ctx.Done():
+					return nil
+				}
+			})
+			service.probeTunnel = func(ctx context.Context, _ int) (int64, error) {
+				close(probeStarted)
+				close(exit)
+				<-ctx.Done()
+				return 0, ctx.Err()
+			}
+			return fixture
+		},
+	}
+	for name, configure := range tests {
+		t.Run(name, func(t *testing.T) {
+			sink := newTelemetrySink(t)
+			probeStarted := make(chan struct{})
+			var candidate brokerapi.RelayDescriptor
+			s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{candidate} })
+			candidate = configure(s, probeStarted)
+			var tickets atomic.Int32
+			s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+				tickets.Add(1)
+				return successfulWSSTicket(fixture.WSSFronts[0], "unused"), nil
+			}
+			if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+				t.Fatal(err)
+			}
+			waitForStatus(t, s, StatusFailed)
+			waitIdle(t, s)
+			if tickets.Load() != 0 {
+				t.Fatalf("local failure requested %d ticket(s)", tickets.Load())
+			}
+			if attempts := sink.named("relay_attempt_failed"); len(attempts) != 0 {
+				t.Fatalf("local failure damaged relay health: %+v", attempts)
+			}
+		})
+	}
+}
+
+func TestWSSConfigBuildFailureDoesNotUnlockFallback(t *testing.T) {
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	fixture.ClientID = "" // bypass discovery to exercise the config boundary itself
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return nil })
+	var tickets atomic.Int32
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		tickets.Add(1)
+		return successfulWSSTicket(fixture.WSSFronts[0], "unused"), nil
+	}
+
+	_, err := s.attemptCandidate(t.Context(), &connection{brokerURL: "https://broker.example"}, fixture, 1080, 1)
+	if stage, local := localCandidateErrorStage(err); !local || stage != "config" {
+		t.Fatalf("config failure = %T %v, stage=%q local=%t", err, err, stage, local)
+	}
+	if tickets.Load() != 0 {
+		t.Fatalf("config failure requested %d WSS ticket(s)", tickets.Load())
+	}
+}
+
+func TestPunchProbeFailureIsAGenuineDirectPathFailure(t *testing.T) {
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return nil })
+	s.probeTunnel = func(context.Context, int) (int64, error) {
+		return 0, errors.New("punched Reality path carried no data")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	result := &candidateResult{
+		relay: fixture, accessTransport: "punch",
+		ctx: ctx, cancel: cancel, proxyPort: 1080,
+	}
+
+	_, err := s.startCandidate(result, client.SingBoxConfigInput{
+		Relay: fixture, Mode: client.ModeProxy,
+		ProxyListenAddress: "127.0.0.1", ProxyListenPort: 1080,
+	})
+	if stage, directPath := directPathErrorStage(err); !directPath || stage != "internet_probe" {
+		t.Fatalf("punch probe failure = %T %v, stage=%q direct=%t", err, err, stage, directPath)
+	}
+}
+
+func TestWSSDirectFailureFallsBackOnSameRelayAndPreservesReality(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	fixture.ClientID = "reality-client-id"
+	fixture.RealityPublicKey = "reality-public-key"
+	fixture.ShortID = "0102030405060708"
+	fixture.ServerName = "camouflage.example.com"
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.dialRelay = func(context.Context, string, int) (int64, error) { return 0, errors.New("direct TCP blocked") }
+
+	type ticketCall struct {
+		brokerURL string
+		request   brokerapi.WSSTicketRequest
+	}
+	ticketCalls := make(chan ticketCall, 1)
+	s.requestWSSTicket = func(_ context.Context, brokerURL string, request brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		ticketCalls <- ticketCall{brokerURL: brokerURL, request: request}
+		return successfulWSSTicket(fixture.WSSFronts[0], "opaque-ticket"), nil
+	}
+	bridge := newFakeWSSBridge()
+	s.dialWSS = func(_ context.Context, rawURL, ticket string) (wssBridge, error) {
+		if rawURL != fixture.WSSFronts[0].URL || ticket != "opaque-ticket" {
+			t.Fatalf("WSS dial URL/ticket = %q/%q", rawURL, ticket)
+		}
+		return bridge, nil
+	}
+	type configCapture struct {
+		body []byte
+	}
+	configs := make(chan configCapture, 1)
+	s.TunnelRuntime = runFuncRuntime(func(ctx context.Context, config []byte) error {
+		configs <- configCapture{body: append([]byte(nil), config...)}
+		<-ctx.Done()
+		return nil
+	})
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	waitWSSSignal(t, bridge.started, "WSS Serve")
+	call := <-ticketCalls
+	if call.brokerURL != sink.srv.URL || call.request.RelayID != fixture.ID || call.request.FrontID != fixture.WSSFronts[0].ID {
+		t.Fatalf("ticket call = %+v", call)
+	}
+	captured := <-configs
+	var generated struct {
+		Outbounds []struct {
+			Type       string `json:"type"`
+			Server     string `json:"server"`
+			ServerPort int    `json:"server_port"`
+			UUID       string `json:"uuid"`
+			Flow       string `json:"flow"`
+			TLS        struct {
+				ServerName string `json:"server_name"`
+				Reality    struct {
+					PublicKey string `json:"public_key"`
+					ShortID   string `json:"short_id"`
+				} `json:"reality"`
+			} `json:"tls"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(captured.body, &generated); err != nil {
+		t.Fatal(err)
+	}
+	outbound := generated.Outbounds[0]
+	if outbound.Server != bridge.host || outbound.ServerPort != bridge.port || outbound.UUID != fixture.ClientID || outbound.Flow != fixture.Flow ||
+		outbound.TLS.ServerName != fixture.ServerName || outbound.TLS.Reality.PublicKey != fixture.RealityPublicKey || outbound.TLS.Reality.ShortID != fixture.ShortID {
+		t.Fatalf("WSS changed Reality config: %+v", outbound)
+	}
+
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+	waitWSSSignal(t, bridge.exited, "WSS exit")
+	if bridge.closeCalls.Load() != 1 {
+		t.Fatalf("bridge Close calls = %d", bridge.closeCalls.Load())
+	}
+	// Temp-config cleanup is the subprocess runtime's job now — proven in
+	// TestSubprocessRuntimeMaterializesConfigAndCleansUp.
+	attempts := sink.named("relay_attempt_failed")
+	if len(attempts) != 1 || attempts[0].RelayID != fixture.ID {
+		t.Fatalf("direct failure health events = %+v", attempts)
+	}
+	succeeded := sink.named("connection_succeeded")
+	if len(succeeded) != 1 || succeeded[0].Attributes["transport"] != accessTransportWSS || succeeded[0].Attributes["front_id"] != fixture.WSSFronts[0].ID {
+		t.Fatalf("WSS success telemetry = %+v", succeeded)
+	}
+	if _, present := succeeded[0].Measurements["relay_tcp_ms"]; present {
+		t.Fatalf("WSS success reported a direct TCP duration: %+v", succeeded[0].Measurements)
+	}
+}
+
+func TestWSSFrontFailoverUsesExactAdvertisedFrontAndDoesNotAddRelayDamage(t *testing.T) {
+	sink := newTelemetrySink(t)
+	frontA := testWSSFront("front-a", testWSSFrontAURL)
+	frontB := testWSSFront("front-b", testWSSFrontBURL)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10", frontA, frontB)
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.dialRelay = func(context.Context, string, int) (int64, error) { return 0, errors.New("direct blocked") }
+
+	var mu sync.Mutex
+	var requested []brokerapi.WSSTicketRequest
+	s.requestWSSTicket = func(_ context.Context, _ string, request brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		mu.Lock()
+		requested = append(requested, request)
+		mu.Unlock()
+		front := frontA
+		if request.FrontID == frontB.ID {
+			front = frontB
+		}
+		return successfulWSSTicket(front, "ticket-for-"+request.FrontID), nil
+	}
+	bridge := newFakeWSSBridge()
+	var dialed []string
+	s.dialWSS = func(_ context.Context, rawURL, ticket string) (wssBridge, error) {
+		mu.Lock()
+		dialed = append(dialed, rawURL+" "+ticket)
+		call := len(dialed)
+		mu.Unlock()
+		if call == 1 {
+			return nil, errors.New("first CDN handshake blocked")
+		}
+		return bridge, nil
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	mu.Lock()
+	gotRequests := append([]brokerapi.WSSTicketRequest(nil), requested...)
+	gotDials := append([]string(nil), dialed...)
+	mu.Unlock()
+	if !reflect.DeepEqual(gotRequests, []brokerapi.WSSTicketRequest{{RelayID: fixture.ID, FrontID: frontA.ID}, {RelayID: fixture.ID, FrontID: frontB.ID}}) {
+		t.Fatalf("front-bound requests = %+v", gotRequests)
+	}
+	if !reflect.DeepEqual(gotDials, []string{frontA.URL + " ticket-for-front-a", frontB.URL + " ticket-for-front-b"}) {
+		t.Fatalf("exact front dials = %v", gotDials)
+	}
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+	if attempts := sink.named("relay_attempt_failed"); len(attempts) != 1 {
+		t.Fatalf("WSS failure added relay-health damage: %+v", attempts)
+	}
+	transportFailures := sink.named("transport_failed")
+	if len(transportFailures) != 1 || transportFailures[0].Attributes["front_id"] != frontA.ID {
+		t.Fatalf("isolated WSS health = %+v", transportFailures)
+	}
+}
+
+func TestWSSInternetProbeFailureIsTransportScoped(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		return 0, errors.New("direct path blocked")
+	}
+	s.requestWSSTicket = func(_ context.Context, _ string, _ brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		return successfulWSSTicket(fixture.WSSFronts[0], "single-use-ticket"), nil
+	}
+	bridge := newFakeWSSBridge()
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) {
+		return bridge, nil
+	}
+	s.probeTunnel = func(context.Context, int) (int64, error) {
+		return 0, errors.New("inner Reality path carried no internet traffic")
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusFailed)
+	waitIdle(t, s)
+	waitWSSSignal(t, bridge.exited, "WSS probe-failure cleanup")
+
+	if attempts := sink.named("relay_attempt_failed"); len(attempts) != 1 {
+		t.Fatalf("WSS probe failure added relay-health damage: %+v", attempts)
+	}
+	failures := sink.named("transport_failed")
+	if len(failures) != 1 ||
+		failures[0].Attributes["failure_stage"] != "wss_internet_probe" ||
+		failures[0].Attributes["front_id"] != fixture.WSSFronts[0].ID {
+		t.Fatalf("WSS probe failure telemetry = %+v", failures)
+	}
+}
+
+func TestWSSTicketURLMismatchFailsClosed(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.dialRelay = func(context.Context, string, int) (int64, error) { return 0, errors.New("direct blocked") }
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		ticket := successfulWSSTicket(fixture.WSSFronts[0], "ticket")
+		ticket.URL = testWSSFrontBURL
+		return ticket, nil
+	}
+	var dials atomic.Int32
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) {
+		dials.Add(1)
+		return newFakeWSSBridge(), nil
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusFailed)
+	waitIdle(t, s)
+	if dials.Load() != 0 {
+		t.Fatalf("mismatched URL dialed %d times", dials.Load())
+	}
+	if attempts := sink.named("relay_attempt_failed"); len(attempts) != 1 {
+		t.Fatalf("ticket mismatch added relay damage: %+v", attempts)
+	}
+	failures := sink.named("transport_failed")
+	if len(failures) != 1 || failures[0].Attributes["failure_stage"] != "ticket_binding" {
+		t.Fatalf("ticket binding telemetry = %+v", failures)
+	}
+}
+
+// TestWSSOrderlySessionEndIsNotReportedAsTransportFailure covers the relay
+// closing a promoted session in an orderly way. The tunnel still has to be
+// rebuilt, but nothing failed: reporting it as transport_failed made every
+// idle-timeout close look like a censored front.
+func TestWSSOrderlySessionEndIsNotReportedAsTransportFailure(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.networkRetryDelay = time.Millisecond
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		return 0, errors.New("direct path blocked")
+	}
+	s.requestWSSTicket = func(_ context.Context, _ string, _ brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		return successfulWSSTicket(fixture.WSSFronts[0], "single-use-ticket"), nil
+	}
+	first, second := newFakeWSSBridge(), newFakeWSSBridge()
+	var bridgeCalls atomic.Int32
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) {
+		if bridgeCalls.Add(1) == 1 {
+			return first, nil
+		}
+		return second, nil
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	waitWSSSignal(t, first.started, "first WSS session")
+
+	// The relay closed the session in an orderly way; Serve returns nil, exactly
+	// as it does when the path is lost.
+	first.setSessionEnd(wsscore.SessionEndRemote)
+	first.fatal <- nil
+	waitWSSSignal(t, second.started, "replacement WSS session")
+	waitForStatus(t, s, StatusConnected)
+
+	// Recovery records into the telemetry outbox and does not flush it — only
+	// promote's initial pass and disconnect do — so the sink is read after
+	// teardown rather than racing the delivery.
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+
+	if failures := sink.named("transport_failed"); len(failures) != 0 {
+		t.Fatalf("orderly session end was reported as path loss: %+v", failures)
+	}
+	ended := sink.named("transport_session_ended")
+	if len(ended) != 1 || ended[0].Attributes["transport"] != accessTransportWSS {
+		t.Fatalf("orderly session end telemetry = %+v", ended)
+	}
+	for _, attempt := range sink.named("relay_attempt_failed") {
+		if len(attempt.Measurements) == 0 {
+			t.Fatalf("orderly session end damaged relay health: %+v", attempt)
+		}
+	}
+}
+
+func TestWSSFatalOfflineRecoveryWaitsThenRunsFreshDirectFirstLadder(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.networkRetryDelay = 2 * time.Millisecond
+	var networkUp atomic.Bool
+	networkUp.Store(true)
+	s.checkNetworkAlive = func(context.Context, []string) bool { return networkUp.Load() }
+
+	var sequenceMu sync.Mutex
+	var sequence []string
+	appendSequence := func(value string) {
+		sequenceMu.Lock()
+		sequence = append(sequence, value)
+		sequenceMu.Unlock()
+	}
+	var directCalls atomic.Int32
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		call := directCalls.Add(1)
+		appendSequence("direct-" + string(rune('0'+call)))
+		return 0, errors.New("direct path blocked")
+	}
+	var ticketCalls atomic.Int32
+	s.requestWSSTicket = func(_ context.Context, _ string, request brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		call := ticketCalls.Add(1)
+		appendSequence("ticket-" + string(rune('0'+call)))
+		return successfulWSSTicket(fixture.WSSFronts[0], "single-use-"+string(rune('0'+call))), nil
+	}
+	first, second := newFakeWSSBridge(), newFakeWSSBridge()
+	var bridgeCalls atomic.Int32
+	s.dialWSS = func(_ context.Context, _ string, ticket string) (wssBridge, error) {
+		call := bridgeCalls.Add(1)
+		appendSequence("wss-" + string(rune('0'+call)) + "-" + ticket)
+		if call == 1 {
+			return first, nil
+		}
+		return second, nil
+	}
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	waitWSSSignal(t, first.started, "first WSS session")
+	networkUp.Store(false)
+	first.fatal <- errors.New("WSS session lost with local network")
+	waitForStatus(t, s, StatusConnecting)
+	time.Sleep(25 * time.Millisecond)
+	if directCalls.Load() != 1 || ticketCalls.Load() != 1 {
+		t.Fatalf("offline recovery started early: direct=%d tickets=%d", directCalls.Load(), ticketCalls.Load())
+	}
+	networkUp.Store(true)
+	waitWSSSignal(t, second.started, "fresh WSS session")
+	waitForStatus(t, s, StatusConnected)
+
+	sequenceMu.Lock()
+	gotSequence := append([]string(nil), sequence...)
+	sequenceMu.Unlock()
+	wantSequence := []string{"direct-1", "ticket-1", "wss-1-single-use-1", "direct-2", "ticket-2", "wss-2-single-use-2"}
+	if !reflect.DeepEqual(gotSequence, wantSequence) {
+		t.Fatalf("recovery order/ticket reuse = %v, want %v", gotSequence, wantSequence)
+	}
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+	waitWSSSignal(t, first.exited, "first WSS cleanup")
+	waitWSSSignal(t, second.exited, "second WSS cleanup")
+	transportFailures := sink.named("transport_failed")
+	if len(transportFailures) != 1 || transportFailures[0].Attributes["failure_stage"] != "wss_session" {
+		t.Fatalf("fatal WSS health = %+v", transportFailures)
+	}
+	for _, attempt := range sink.named("relay_attempt_failed") {
+		if len(attempt.Measurements) == 0 {
+			t.Fatalf("fatal WSS session itself damaged relay health: %+v", attempt)
+		}
+	}
+}
+
+func TestWSSActiveSingBoxExitIsLocalAndDoesNotMintAnotherTicket(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	var directCalls atomic.Int32
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		directCalls.Add(1)
+		return 0, errors.New("direct blocked")
+	}
+	var tickets atomic.Int32
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		tickets.Add(1)
+		return successfulWSSTicket(fixture.WSSFronts[0], "single-use-ticket"), nil
+	}
+	bridge := newFakeWSSBridge()
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) { return bridge, nil }
+	crash := make(chan error, 1)
+	s.TunnelRuntime = runFuncRuntime(func(ctx context.Context, _ []byte) error {
+		select {
+		case err := <-crash:
+			return err
+		case <-ctx.Done():
+			return nil
+		}
+	})
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	crash <- errors.New("local sing-box crashed")
+	waitForStatus(t, s, StatusFailed)
+	waitIdle(t, s)
+	waitWSSSignal(t, bridge.exited, "WSS cleanup after local process exit")
+	if tickets.Load() != 1 || directCalls.Load() != 1 {
+		t.Fatalf("local process exit restarted ladder: direct=%d tickets=%d", directCalls.Load(), tickets.Load())
+	}
+	if failures := sink.named("transport_failed"); len(failures) != 0 {
+		t.Fatalf("local process exit was misreported as WSS transport failure: %+v", failures)
+	}
+	attempts := sink.named("relay_attempt_failed")
+	if len(attempts) != 1 || len(attempts[0].Measurements) == 0 {
+		t.Fatalf("local process exit damaged relay health: %+v", attempts)
+	}
+	failed := sink.named("connection_failed")
+	if len(failed) != 1 || failed[0].Attributes["failure_stage"] != "tunnel_process" {
+		t.Fatalf("local terminal failure telemetry = %+v", failed)
+	}
+}
+
+func TestWSSHealthProbeFailureIsTransportScoped(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.healthTick = 2 * time.Millisecond
+	s.checkNetworkAlive = func(context.Context, []string) bool { return true }
+	var probeCalls atomic.Int32
+	s.healthProbe = func(context.Context, int) error {
+		if probeCalls.Add(1) <= HealthFailureThreshold {
+			return errors.New("CDN path blackholed Reality bytes")
+		}
+		return nil
+	}
+	var directCalls atomic.Int32
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		if directCalls.Add(1) == 1 {
+			return 0, errors.New("initial direct path blocked")
+		}
+		return 1, nil
+	}
+	var tickets atomic.Int32
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		tickets.Add(1)
+		return successfulWSSTicket(fixture.WSSFronts[0], "single-use-ticket"), nil
+	}
+	bridge := newFakeWSSBridge()
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) { return bridge, nil }
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(sink.named("relay_failover")) == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if failovers := sink.named("relay_failover"); len(failovers) != 1 || failovers[0].Attributes["transport"] != brokerapi.TransportDirect {
+		t.Fatalf("WSS health recovery = %+v", failovers)
+	}
+	if tickets.Load() != 1 || directCalls.Load() != 2 {
+		t.Fatalf("recovery was not fresh direct-first: direct=%d tickets=%d", directCalls.Load(), tickets.Load())
+	}
+	transportFailures := sink.named("transport_failed")
+	if len(transportFailures) != 1 || transportFailures[0].Attributes["failure_stage"] != "wss_health_probe" {
+		t.Fatalf("WSS health failure telemetry = %+v", transportFailures)
+	}
+	attempts := sink.named("relay_attempt_failed")
+	if len(attempts) != 1 || len(attempts[0].Measurements) == 0 {
+		t.Fatalf("WSS health failure damaged relay ranking: %+v", attempts)
+	}
+	waitWSSSignal(t, bridge.exited, "blackholed WSS cleanup")
+	_ = s.Disconnect()
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+}
+
+func TestWSSFatalOfflineWaitStopsOnDisconnect(t *testing.T) {
+	sink := newTelemetrySink(t)
+	fixture := relayWithWSS("relay-a", "JP", "Tokyo", "Japan", "127.0.0.10")
+	s, _ := newLadderService(t, func() []brokerapi.RelayDescriptor { return []brokerapi.RelayDescriptor{fixture} })
+	s.networkRetryDelay = time.Millisecond
+	s.checkNetworkAlive = func(context.Context, []string) bool { return false }
+	var directCalls atomic.Int32
+	s.dialRelay = func(context.Context, string, int) (int64, error) {
+		directCalls.Add(1)
+		return 0, errors.New("direct blocked")
+	}
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		return successfulWSSTicket(fixture.WSSFronts[0], "ticket"), nil
+	}
+	bridge := newFakeWSSBridge()
+	s.dialWSS = func(context.Context, string, string) (wssBridge, error) { return bridge, nil }
+
+	if err := s.Connect(sink.srv.URL, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusConnected)
+	bridge.fatal <- errors.New("offline WSS stop")
+	waitForStatus(t, s, StatusConnecting)
+	if err := s.Disconnect(); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, s, StatusDisconnected)
+	waitIdle(t, s)
+	if directCalls.Load() != 1 {
+		t.Fatalf("disconnect did not stop offline recovery: direct calls=%d", directCalls.Load())
+	}
+	if logs := logLines(s); !strings.Contains(logs, "waiting for connectivity") {
+		t.Fatalf("missing offline recovery log:\n%s", logs)
+	}
+}
+
+// The whole ticket ladder shares one 15s budget (WssTicketClient.kt
+// totalDeadlineMillis / WssTicketClient.swift totalDeadlineMilliseconds):
+// attempts shrink to the remaining budget, and once it is spent no further
+// front is tried — the first recorded error surfaces.
+func TestWSSTicketLadderHonorsTheSharedTotalDeadline(t *testing.T) {
+	s := New()
+	s.wssTicketBudget = 50 * time.Millisecond
+	conn := &connection{brokerURL: brokerapi.DefaultBrokerURL}
+	var calls atomic.Int32
+	s.requestWSSTicket = func(ctx context.Context, _ string, _ brokerapi.WSSTicketRequest, _, _ string) (brokerapi.WSSTicketResponse, error) {
+		calls.Add(1)
+		<-ctx.Done() // each attempt consumes its (shrinking) share of the budget
+		return brokerapi.WSSTicketResponse{}, ctx.Err()
+	}
+
+	started := time.Now()
+	_, err := s.requestWSSSessionTicket(t.Context(), conn, brokerapi.WSSTicketRequest{RelayID: "relay-a", FrontID: "front-a"})
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("an exhausted budget must fail the ticket request")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("ticket ladder ran %v; the shared deadline did not bound it", elapsed)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("attempts = %d; the spent budget must stop the ladder before the next front", got)
+	}
+}
+
+// A Retry-After wait that cannot fit the remaining budget is not taken: the
+// first error surfaces immediately and the once-per-ladder retry stays
+// unconsumed (the mobile strict wait-fits gate, WssTicketClient.kt:167 /
+// WssTicketClient.swift:175).
+func TestWSSTicketRetryWaitMustFitTheRemainingBudget(t *testing.T) {
+	s := New()
+	s.wssTicketBudget = 100 * time.Millisecond
+	var waits atomic.Int32
+	s.waitWSSRetry = func(context.Context, time.Duration) error {
+		waits.Add(1)
+		return nil
+	}
+	conn := &connection{brokerURL: brokerapi.DefaultBrokerURL}
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		return brokerapi.WSSTicketResponse{}, &client.WSSTicketStatusError{StatusCode: 429, RetryAfter: 10 * time.Second}
+	}
+
+	started := time.Now()
+	_, err := s.requestWSSSessionTicket(t.Context(), conn, brokerapi.WSSTicketRequest{RelayID: "relay-a", FrontID: "front-a"})
+	if err == nil {
+		t.Fatal("the rate-limited ladder must fail")
+	}
+	var statusErr *client.WSSTicketStatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != 429 {
+		t.Fatalf("surfaced error = %v; want the recorded 429", err)
+	}
+	if waits.Load() != 0 {
+		t.Fatalf("a wait that cannot fit the budget was still taken (%d waits)", waits.Load())
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("ladder ran %v despite the unfittable wait", elapsed)
+	}
+	if conn.wssTicketRetryUsed {
+		t.Fatal("an untaken wait must not consume the once-per-ladder retry")
+	}
+}
+
+// The surfaced diagnostic is the FIRST failure ever recorded, spanning both
+// rounds (the mobile first-error-wins: WssTicketClient.kt firstFailure /
+// WssTicketClient.swift firstFailure) — the retry round's fresher errors
+// must not replace it.
+func TestWSSTicketFirstErrorWinsAcrossRounds(t *testing.T) {
+	s := New()
+	s.waitWSSRetry = func(context.Context, time.Duration) error { return nil }
+	conn := &connection{brokerURL: brokerapi.DefaultBrokerURL}
+	var calls atomic.Int32
+	s.requestWSSTicket = func(context.Context, string, brokerapi.WSSTicketRequest, string, string) (brokerapi.WSSTicketResponse, error) {
+		if calls.Add(1) == 1 {
+			return brokerapi.WSSTicketResponse{}, &client.WSSTicketStatusError{StatusCode: 429, RetryAfter: time.Millisecond}
+		}
+		return brokerapi.WSSTicketResponse{}, errors.New("later front noise")
+	}
+
+	_, err := s.requestWSSSessionTicket(t.Context(), conn, brokerapi.WSSTicketRequest{RelayID: "relay-a", FrontID: "front-a"})
+	var statusErr *client.WSSTicketStatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != 429 {
+		t.Fatalf("surfaced error = %v; want round 0's first failure (the 429)", err)
+	}
+	if calls.Load() < 3 {
+		t.Fatalf("calls = %d; the retry round should have run", calls.Load())
+	}
+}
