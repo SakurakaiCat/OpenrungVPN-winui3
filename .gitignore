@@ -1,0 +1,21 @@
+# Build output
+dist/
+bin/
+obj/
+*.binlog
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Local crash logs (written by the app at runtime)
+last-crash.txt
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Go build artifact
+core/core
