@@ -1,14 +1,14 @@
 # OpenRung WinUI3 Core ↔ UI API Contract (v1)
 
 This file is the single source of truth for the contract between
-`core/openrung-core.exe` (Go) and `app/OpenRung.WinUI` (C# WinUI3).
+`core/openrung-core.exe` (Go) and `app/OpenRung.WinUI.Cpp` (C++/WinRT WinUI3).
 Both sides MUST implement exactly this. No deviation without updating this file.
 
 ## Process model
 
-- The C# app spawns `openrung-core.exe serve --heartbeat-timeout 45s` (hidden window,
-  `UseShellExecute=false`, working directory = exe directory). For TUN mode it respawns
-  it elevated via `Verb = "runas"`.
+- The app spawns `openrung-core.exe serve --heartbeat-timeout 45s` (hidden window,
+  inherited environment, working directory = exe directory). For TUN mode it respawns
+  it elevated via `runas`.
 - On start the core binds `127.0.0.1` on an ephemeral port (or `--port N`), generates a
   random 32-byte hex token, and atomically writes an endpoint file to
   `%LOCALAPPDATA%\OpenRung\core-endpoint.json`:
@@ -64,6 +64,10 @@ Body: `{"brokerUrl":"" , "relayId":"" , "country":""}` (all optional; empty = au
 Responses:
 - `202 {"ok":true}` — connect dispatched; completion arrives via events.
 - `409 {"error":"...","code":"already_connecting"}` etc.
+- `409 {"error":"...","code":"tun_conflict"}` — TUN connect refused because a TUN device
+  already exists on the machine (another VPN/proxy client, or a crashed core left one
+  behind); disconnect it / remove the adapter, or switch to proxy mode. Checked only
+  while the engine is idle, so the core's own connected TUN is never reported.
 - `428 {"error":"...","code":"elevation_required"}` — TUN mode on Windows without an
   elevated core; the UI must offer to restart the core elevated.
 
@@ -121,5 +125,6 @@ endpoint file removed). The UI sends this on exit and before relaunching elevate
 - The core's own outbound traffic (broker discovery, WSS tickets/relay dials,
   telemetry, geo, punch) never uses the OS system proxy: it is the proxy itself,
   and routing its traffic through a third-party proxy (or its own loopback
-  inbound) would loop. Its API client (the UI's `HttpClient`) is likewise built
-  with `UseProxy=false` so UI→core calls are direct.
+  inbound) would loop. The UI's API client likewise bypasses the system proxy
+  (WinHTTP `WINHTTP_ACCESS_TYPE_NO_PROXY`, plus `NO_PROXY=*` in the core's
+  inherited environment) so UI→core calls are direct.

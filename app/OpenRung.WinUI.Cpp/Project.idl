@@ -1,0 +1,46 @@
+namespace OpenRung.WinUI
+{
+    [default_interface]
+    runtimeclass App : Microsoft.UI.Xaml.Application
+    {
+        App();
+    }
+
+    /// One row in the relay list (home card + servers page share the shape).
+    /// Plain data holder; x:Bind OneTime reads these at realize time.
+    runtimeclass RelayRow
+    {
+        RelayRow();
+        String Id;
+        String Label;
+        String DisplayTitle;
+        String NodeClass;
+        String LatencyText;
+        Microsoft.UI.Xaml.Media.ImageSource FlagImage;
+    }
+
+    unsealed runtimeclass MainWindow : Microsoft.UI.Xaml.Window
+    {
+        MainWindow();
+    }
+
+    unsealed runtimeclass HomePage : Microsoft.UI.Xaml.Controls.Page
+    {
+        HomePage();
+    }
+
+    unsealed runtimeclass ServersPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        ServersPage();
+    }
+
+    unsealed runtimeclass SettingsPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        SettingsPage();
+    }
+
+    unsealed runtimeclass LogsPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        LogsPage();
+    }
+}

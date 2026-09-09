@@ -2,6 +2,7 @@
 dist/
 bin/
 obj/
+x64/
 *.binlog
 
 # Visual Studio / Rider
@@ -19,3 +20,8 @@ Thumbs.db
 
 # Go build artifact
 core/core
+
+# Tool / session artifacts
+build.log
+pre.xml
+.tool_probe
