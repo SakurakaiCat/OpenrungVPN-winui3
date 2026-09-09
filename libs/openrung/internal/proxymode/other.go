@@ -27,3 +27,9 @@ func (unsupportedController) Set(host string, port int) error {
 func (unsupportedController) Restore(snap Snapshot) error {
 	return nil
 }
+
+func (unsupportedController) Describe() string { return "" }
+
+func (unsupportedController) Clear() error {
+	return errors.New("system proxy control is not implemented on this platform yet")
+}

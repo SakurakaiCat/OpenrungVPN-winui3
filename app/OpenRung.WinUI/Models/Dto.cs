@@ -38,6 +38,10 @@ public sealed class StateSnapshot
 
     [JsonPropertyName("coreVersion")]
     public string CoreVersion { get; set; } = "";
+
+    /// <summary>OS system proxy currently in effect ("host:port" or PAC URL), "" when none.</summary>
+    [JsonPropertyName("systemProxy")]
+    public string SystemProxy { get; set; } = "";
 }
 
 public sealed class ProxyInfo

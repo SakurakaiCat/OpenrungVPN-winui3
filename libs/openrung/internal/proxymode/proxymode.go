@@ -53,4 +53,12 @@ type Controller interface {
 	Set(host string, port int) error
 	// Restore reverts to a previously captured snapshot.
 	Restore(snap Snapshot) error
+	// Describe reports the currently configured proxy in human-readable form
+	// (a "host:port" manual proxy, or a PAC URL), or "" when no proxy is
+	// enabled. Best-effort: an empty result can also mean the read failed.
+	Describe() string
+	// Clear disables any OS proxy settings (manual proxy and PAC URL),
+	// leaving the proxy off. Used when the user opts to remove a pre-existing
+	// third-party proxy before this app takes over.
+	Clear() error
 }

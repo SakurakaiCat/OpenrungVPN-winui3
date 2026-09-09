@@ -41,8 +41,12 @@ public sealed class CoreApiClient
     public Task<StateSnapshot> GetStateAsync(CancellationToken ct = default) =>
         GetAsync<StateSnapshot>("/api/state", ct);
 
-    public Task<LogsResponse> GetLogsAsync(int tail = 200, CancellationToken ct = default) =>
+    public Task<LogsResponse> GetLogsAsync(int tail = 500, CancellationToken ct = default) =>
         GetAsync<LogsResponse>($"/api/logs?tail={tail}", ct);
+
+    /// <summary>POST /api/proxy {"clear":true} — remove any OS system proxy (e.g. a third-party one) at the core.</summary>
+    public Task ClearSystemProxyAsync(CancellationToken ct = default) =>
+        PostAsync("/api/proxy", new { clear = true }, ct);
 
     public Task<RelaysResponse> GetRelaysAsync(string? broker = null, CancellationToken ct = default)
     {
@@ -76,8 +80,20 @@ public sealed class CoreApiClient
 
     private async Task<T> GetAsync<T>(string url, CancellationToken ct)
     {
-        using var resp = await _http.GetAsync(BaseAddress + url, ct).ConfigureAwait(false);
-        return await ReadAsync<T>(resp, ct).ConfigureAwait(false);
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.GetAsync(BaseAddress + url, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AppLog.Write($"API GET {url} failed: {ex.Message}");
+            throw;
+        }
+        using (resp)
+        {
+            return await ReadAsync<T>(resp, "GET", url, ct).ConfigureAwait(false);
+        }
     }
 
     private Task PostAsync(string url, object? body, CancellationToken ct) =>
@@ -86,27 +102,35 @@ public sealed class CoreApiClient
     private async Task PostAsyncOk(string url, object? body, CancellationToken ct)
     {
         using var resp = await SendAsync(url, body, ct).ConfigureAwait(false);
-        await EnsureSuccessAsync(resp, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(resp, "POST", url, ct).ConfigureAwait(false);
     }
 
     private async Task<T> PostAsync<T>(string url, object? body, CancellationToken ct)
     {
         using var resp = await SendAsync(url, body, ct).ConfigureAwait(false);
-        return await ReadAsync<T>(resp, ct).ConfigureAwait(false);
+        return await ReadAsync<T>(resp, "POST", url, ct).ConfigureAwait(false);
     }
 
-    private Task<HttpResponseMessage> SendAsync(string url, object? body, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(string url, object? body, CancellationToken ct)
     {
         HttpContent? content = body is null
             ? null
             : new StringContent(JsonSerializer.Serialize(body, Json),
                 new MediaTypeHeaderValue("application/json"));
-        return _http.PostAsync(BaseAddress + url, content, ct);
+        try
+        {
+            return await _http.PostAsync(BaseAddress + url, content, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AppLog.Write($"API POST {url} failed: {ex.Message}");
+            throw;
+        }
     }
 
-    private static async Task<T> ReadAsync<T>(HttpResponseMessage resp, CancellationToken ct)
+    private static async Task<T> ReadAsync<T>(HttpResponseMessage resp, string method, string url, CancellationToken ct)
     {
-        await EnsureSuccessAsync(resp, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(resp, method, url, ct).ConfigureAwait(false);
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         var value = JsonSerializer.Deserialize<T>(json, Json);
         return value ?? throw new CoreApiException(resp.StatusCode, null, "empty response body");
@@ -117,7 +141,7 @@ public sealed class CoreApiClient
     /// code "elevation_required" becomes <see cref="ElevationRequiredException"/>,
     /// everything else <see cref="CoreApiException"/> carrying the contract code.
     /// </summary>
-    private static async Task EnsureSuccessAsync(HttpResponseMessage resp, CancellationToken ct)
+    private static async Task EnsureSuccessAsync(HttpResponseMessage resp, string method, string url, CancellationToken ct)
     {
         if (resp.IsSuccessStatusCode)
             return;
@@ -132,6 +156,10 @@ public sealed class CoreApiClient
             code = err?.Code;
         }
         catch { /* non-JSON error body: fall through with the status line */ }
+
+        // The logs page must show every failed call with its URL and status —
+        // this is where "why did nothing happen" questions get answered.
+        AppLog.Write($"API {method} {url} → {(int)resp.StatusCode} {resp.StatusCode}: {message ?? code ?? "no error body"}");
 
         message ??= $"core returned HTTP {(int)resp.StatusCode}";
         if ((int)resp.StatusCode == 428 || code == "elevation_required")

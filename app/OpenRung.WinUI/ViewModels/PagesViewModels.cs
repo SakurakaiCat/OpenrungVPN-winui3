@@ -37,7 +37,7 @@ public partial class ServersViewModel : ObservableObject
 /// </summary>
 public partial class LogsViewModel : ObservableObject
 {
-    private const int MaxLines = 1000;
+    private const int MaxLines = 2000;
 
     public ObservableCollection<string> Lines { get; } = new();
 

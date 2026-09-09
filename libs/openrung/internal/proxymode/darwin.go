@@ -5,6 +5,7 @@ package proxymode
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -82,6 +83,39 @@ func (c *darwinController) Restore(snap Snapshot) error {
 		}
 		if err := c.restoreOne("-setsecurewebproxy", "-setsecurewebproxystate", svc.Name, svc.SecureEnabled, svc.SecureHost, svc.SecurePort); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Describe reports the first enabled manual web proxy ("host:port") found
+// across the enabled services, or "" when no proxy is on.
+func (c *darwinController) Describe() string {
+	services, err := c.listServices()
+	if err != nil {
+		return ""
+	}
+	for _, name := range services {
+		if r, err := c.getProxy("-getwebproxy", name); err == nil && r.enabled && r.host != "" {
+			return net.JoinHostPort(r.host, strconv.Itoa(r.port))
+		}
+	}
+	return ""
+}
+
+// Clear turns off the web and secure web proxies on every enabled service,
+// removing any pre-existing third-party proxy.
+func (c *darwinController) Clear() error {
+	services, err := c.listServices()
+	if err != nil {
+		return err
+	}
+	for _, name := range services {
+		if _, err := c.run("-setwebproxystate", name, "off"); err != nil {
+			return fmt.Errorf("disable web proxy on %q: %w", name, err)
+		}
+		if _, err := c.run("-setsecurewebproxystate", name, "off"); err != nil {
+			return fmt.Errorf("disable secure web proxy on %q: %w", name, err)
 		}
 	}
 	return nil

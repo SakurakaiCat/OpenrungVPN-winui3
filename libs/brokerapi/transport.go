@@ -207,11 +207,22 @@ func newTransport(base *http.Transport, state *echConfigState, echTimeout time.D
 var (
 	defaultECHState  = newECHConfigState(embeddedCloudflareECHConfigList)
 	defaultTransport = newTransport(
-		http.DefaultTransport.(*http.Transport),
+		noProxyBase(),
 		defaultECHState,
 		brokerECHTimeout,
 	)
 )
+
+// noProxyBase clones http.DefaultTransport with proxy resolution disabled: the
+// clients built on it are the proxy itself — their broker, ticket, and
+// telemetry traffic must never be routed through the OS system proxy, which
+// may be this app's own tunnel (a proxy-of-proxy loop) or a third-party
+// client the user runs alongside.
+func noProxyBase() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}
 
 // NewHTTPClient returns an HTTP client that keeps a built-in front's hostname
 // out of the ClientHello on direct connections: the Cloudflare front
@@ -254,7 +265,7 @@ func NewHTTPClientWithDialControl(
 	if control == nil {
 		return NewHTTPClient(timeout)
 	}
-	base := http.DefaultTransport.(*http.Transport).Clone()
+	base := noProxyBase()
 	// Mirror http.DefaultTransport's dialer shape; Control and the hooked
 	// resolver are the only additions.
 	dialer := &net.Dialer{

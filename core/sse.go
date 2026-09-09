@@ -10,9 +10,9 @@ import (
 
 const (
 	// logRingCapacity bounds the replayable history; the SSE connect replay
-	// and /api/logs read the last 200 of it.
-	logRingCapacity  = 500
-	logReplayOnJoin  = 200
+	// and /api/logs read the last 500 of it.
+	logRingCapacity  = 2000
+	logReplayOnJoin  = 500
 	subscriberBufLen = 64
 )
 
