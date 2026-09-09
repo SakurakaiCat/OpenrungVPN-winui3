@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace OpenRung.WinUI.Models;
 
@@ -115,6 +117,40 @@ public sealed class RelayItem
     /// <summary>null when not probed or the probe failed.</summary>
     [JsonPropertyName("latencyMs")]
     public long? LatencyMs { get; set; }
+
+    /// <summary>
+    /// Row title in the 国家+地区+编号 form (e.g. 日本东京1); the supervisor
+    /// numbers relays within each (country, city) group after loading. Empty
+    /// until assigned; falls back to the raw label when never numbered.
+    /// </summary>
+    [JsonIgnore]
+    public string DisplayTitle { get; set; } = "";
+
+    /// <summary>
+    /// Bundled flag image for the ISO-3166 alpha-2 code, from the
+    /// public-domain flagcdn set in Assets/Flags. Windows has no flag-glyph
+    /// emoji (regional-indicator pairs render as bare letters), so the relay
+    /// list binds real images instead; null when the code is missing/unknown.
+    /// </summary>
+    [JsonIgnore]
+    public ImageSource? FlagImage
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(CountryCode) || CountryCode.Length != 2)
+                return null;
+            var key = CountryCode.ToLowerInvariant();
+            if (!char.IsAsciiLetter(key[0]) || !char.IsAsciiLetter(key[1]))
+                return null;
+            if (FlagCache.TryGetValue(key, out var cached))
+                return cached;
+            var image = new BitmapImage(new Uri($"ms-appx:///Assets/Flags/{key}.png"));
+            FlagCache[key] = image;
+            return image;
+        }
+    }
+
+    private static readonly Dictionary<string, ImageSource?> FlagCache = new(StringComparer.Ordinal);
 }
 
 public sealed class RelaysResponse

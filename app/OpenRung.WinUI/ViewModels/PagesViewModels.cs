@@ -23,6 +23,10 @@ public partial class ServersViewModel : ObservableObject
     [ObservableProperty]
     private string? _error;
 
+    public bool HasError => Error is not null;
+
+    partial void OnErrorChanged(string? value) => OnPropertyChanged(nameof(HasError));
+
     [ObservableProperty]
     private string _summaryText = "";
 }

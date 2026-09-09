@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using OpenRung.WinUI.Models;
 using OpenRung.WinUI.Services;
 using OpenRung.WinUI.ViewModels;
 
@@ -26,6 +27,37 @@ public sealed partial class ServersPage : Page
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => Reload();
 
+    /// <summary>
+    /// Titles each relay 国家+地区+编号 (e.g. 日本东京1, or 日本1 when the
+    /// broker has no city), numbering within each (country, city) group in
+    /// directory order. Set before items bind so x:Bind OneTime picks it up.
+    /// </summary>
+    private static void AssignDisplayTitles(List<RelayItem> relays)
+    {
+        var counters = new Dictionary<(string, string), int>();
+        foreach (var relay in relays)
+        {
+            var country = CountryName(relay);
+            var city = CityNames.Localize(relay.City);
+            // "新加坡新加坡1" reads duplicated; skip a city that matches its country.
+            if (city == country)
+                city = "";
+            var key = (relay.CountryCode ?? "", relay.City ?? "");
+            var n = counters.TryGetValue(key, out var seen) ? seen + 1 : 1;
+            counters[key] = n;
+            relay.DisplayTitle = city.Length == 0 ? $"{country}{n}" : $"{country}{city}{n}";
+        }
+    }
+
+    private static string CountryName(RelayItem relay)
+    {
+        var code = relay.CountryCode;
+        if (!string.IsNullOrEmpty(code) && code.Length == 2
+            && CountryNames.Map.TryGetValue(code.ToUpperInvariant(), out var zh))
+            return zh;
+        return string.IsNullOrWhiteSpace(relay.Country) ? "节点" : relay.Country.Trim();
+    }
+
     private async void Reload()
     {
         ViewModel.Loading = true;
@@ -38,6 +70,7 @@ public sealed partial class ServersPage : Page
                 ViewModel.Relays.Add(r);
             var ranked = resp.Relays.Count(r => r.LatencyMs.HasValue);
             ViewModel.SummaryText = $"{resp.Relays.Count} 个节点，已测速 {ranked} 个";
+            AssignDisplayTitles(resp.Relays);
         }
         catch (Exception ex)
         {
@@ -51,7 +84,11 @@ public sealed partial class ServersPage : Page
 
     private async System.Threading.Tasks.Task ShowErrorAsync(string message)
     {
-        if (_errorDialogOpen)
+        // Always surface inline first: before the page has loaded (e.g. an
+        // auto-refresh on navigation) XamlRoot is null and ContentDialog.
+        // ShowAsync would throw and fail-fast the process.
+        ViewModel.Error = message;
+        if (XamlRoot is null || _errorDialogOpen)
             return;
         _errorDialogOpen = true;
         try
