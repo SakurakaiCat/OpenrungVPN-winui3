@@ -86,6 +86,11 @@ jobs:
       - name: Zip portable dist
         run: |
           chmod +x dist/core/openrung-core.exe
+          # MSBuild may stage the app under dist/OpenRung.WinUI/ — flatten.
+          if [ -d dist/OpenRung.WinUI ]; then
+            mv dist/OpenRung.WinUI/* dist/
+            rmdir dist/OpenRung.WinUI
+          fi
           test -f dist/OpenRung.WinUI.exe
           cd dist && zip -qr ../OpenRung-win-x64.zip .
 
