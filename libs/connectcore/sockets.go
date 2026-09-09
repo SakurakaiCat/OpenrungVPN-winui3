@@ -117,6 +117,10 @@ func (s *Engine) protectedNetDialer(timeout time.Duration) *net.Dialer {
 // hub punch coordination.
 func protectedTransport(protector wsscore.SocketProtector, dnsServers []string) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Never inherit the OS system proxy: this traffic (geo lookup, punch hub)
+	// belongs to the proxy itself and would loop or stall behind a
+	// third-party proxy the user runs alongside.
+	transport.Proxy = nil
 	transport.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,

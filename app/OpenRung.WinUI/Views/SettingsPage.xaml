@@ -28,6 +28,26 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="系统代理" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap">
+                当前系统代理：<Run FontWeight="SemiBold" Text="{x:Bind ViewModel.SystemProxyText, Mode=OneWay}" />。代理模式下内核会先接管已有代理、断开时恢复；开启自动清除后，启动时直接移除已有代理（例如其他代理工具留下的）。
+            </TextBlock>
+            <CheckBox
+                IsChecked="{x:Bind ViewModel.AutoClearProxy, Mode=TwoWay}"
+                Checked="AutoClearProxy_Checked"
+                Content="启动时自动清除已有系统代理"
+                Unchecked="AutoClearProxy_Unchecked" />
+            <Button
+                HorizontalAlignment="Left"
+                Click="ClearProxy_Click"
+                Content="立即清除系统代理"
+                IsEnabled="{x:Bind ViewModel.NotProxyBusy, Mode=OneWay}" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="核心" />
             <TextBlock
                 Style="{StaticResource CaptionTextBlockStyle}"

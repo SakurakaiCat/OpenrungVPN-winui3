@@ -50,7 +50,7 @@ public partial class App : Application
         bool owned;
         _singleInstance = new Mutex(true, @"Local\OpenRung.WinUI.SingleInstance", out owned);
         if (!owned)
-            Environment.Exit(0);
+            Environment.Exit(0); // second launch: the first instance owns the core
 
         try
         {
@@ -63,6 +63,8 @@ public partial class App : Application
             throw;
         }
 
+        AppLog.Attach(_window.DispatcherQueue);
+
         Supervisor.StateChanged += (_, s) => State.ApplyState(s);
         Supervisor.LogReceived += (_, line) =>
             _window.DispatcherQueue.TryEnqueue(() =>
@@ -74,17 +76,39 @@ public partial class App : Application
         _ = Supervisor.StartAsync().ContinueWith(
             t =>
             {
-                var ex = t.Exception?.GetBaseException() ?? new InvalidOperationException("core startup failed");
-                TryLogCrash(ex);
-                _window?.DispatcherQueue.TryEnqueue(() =>
-                    Logs.Append($"[error] core startup failed: {ex.Message}"));
-            },
-            TaskContinuationOptions.OnlyOnFaulted);
+                if (t.IsFaulted)
+                {
+                    var ex = t.Exception?.GetBaseException() ?? new InvalidOperationException("core startup failed");
+                    TryLogCrash(ex);
+                    AppLog.Write($"core startup failed: {ex.Message}");
+                    _window?.DispatcherQueue.TryEnqueue(() =>
+                        Logs.Append($"[error] core startup failed: {ex.Message}"));
+                    return;
+                }
+                AppLog.Write("core ready; event stream starting");
+                // "Auto-clear existing system proxy": a stale third-party proxy
+                // left by another client would otherwise sit in front of the
+                // tunnel. Clearing it here (idempotent, no-op when empty) makes
+                // the app own the proxy decision from second zero.
+                if (AppSettings.Load().AutoClearProxy)
+                {
+                    _ = Supervisor.Core.Api.ClearSystemProxyAsync().ContinueWith(
+                        c =>
+                        {
+                            if (c.IsFaulted)
+                                AppLog.Write($"auto-clear system proxy failed: {c.Exception?.GetBaseException()?.Message}");
+                            else
+                                AppLog.Write("auto-clear: system proxy removed at startup");
+                        },
+                        TaskContinuationOptions.OnlyOnFaulted);
+                }
+            });
     }
 
     /// <summary>Called by MainWindow's Close handler to tear the core down first.</summary>
     public static Task ShutdownAsync()
     {
+        AppLog.Write("app exiting; stopping core");
         return Supervisor.DisposeAsync().AsTask();
     }
 }

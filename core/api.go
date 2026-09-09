@@ -33,6 +33,7 @@ func (c *core) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/connect", c.handleConnect)
 	mux.HandleFunc("/api/disconnect", c.handleDisconnect)
 	mux.HandleFunc("/api/mode", c.handleMode)
+	mux.HandleFunc("/api/proxy", c.handleProxy)
 	mux.HandleFunc("/api/relays", c.handleRelays)
 	mux.HandleFunc("/api/logs", c.handleLogs)
 	mux.HandleFunc("/api/heartbeat", c.handleHeartbeat)
@@ -84,15 +85,16 @@ func (c *core) handleVersion(w http.ResponseWriter, r *http.Request) {
 // ---- State snapshot -------------------------------------------------------
 
 type stateSnapshot struct {
-	Status      string              `json:"status"`
-	RelayLabel  *string             `json:"relayLabel"`
-	LastError   *string             `json:"lastError"`
-	Mode        string              `json:"mode"`
-	Proxy       *proxyEndpoint      `json:"proxy"`
-	Connection  *connectionSnapshot `json:"connection"`
-	Recents     []recentNode        `json:"recents"`
-	Elevated    bool                `json:"elevated"`
-	CoreVersion string              `json:"coreVersion"`
+	Status        string              `json:"status"`
+	RelayLabel    *string             `json:"relayLabel"`
+	LastError     *string             `json:"lastError"`
+	Mode          string              `json:"mode"`
+	Proxy         *proxyEndpoint      `json:"proxy"`
+	Connection    *connectionSnapshot `json:"connection"`
+	Recents       []recentNode        `json:"recents"`
+	Elevated      bool                `json:"elevated"`
+	CoreVersion   string              `json:"coreVersion"`
+	SystemProxy   string              `json:"systemProxy"`
 }
 
 type proxyEndpoint struct {
@@ -173,7 +175,19 @@ func (c *core) snapshot() stateSnapshot {
 		Recents:     recents,
 		Elevated:    elevated(),
 		CoreVersion: client.AppVersion(),
+		SystemProxy: c.systemProxy(),
 	}
+}
+
+// systemProxy reports the OS system proxy currently in effect, or "" when
+// none. While connected in proxy mode this is the endpoint the core itself
+// set; otherwise it is a pre-existing third-party proxy (e.g. another proxy
+// client the user runs), which the UI can surface and clear.
+func (c *core) systemProxy() string {
+	if c.host == nil || c.host.proxy == nil || !c.host.proxy.Supported() {
+		return ""
+	}
+	return c.host.proxy.Describe()
 }
 
 func (c *core) handleState(w http.ResponseWriter, r *http.Request) {
@@ -386,6 +400,43 @@ func (c *core) handleMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": mode.String()})
 }
 
+// ---- POST /api/proxy --------------------------------------------------------
+
+// proxyRequest is the POST /api/proxy body. clear=true disables the OS system
+// proxy outright (a pre-existing third-party one) instead of the default
+// take-over-then-restore behavior proxy mode applies.
+type proxyRequest struct {
+	Clear bool `json:"clear"`
+}
+
+func (c *core) handleProxy(w http.ResponseWriter, r *http.Request) {
+	if !methodOnly(w, r, http.MethodPost) {
+		return
+	}
+	var req proxyRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "", "invalid body")
+		return
+	}
+	if !req.Clear {
+		writeError(w, http.StatusBadRequest, "", "unsupported action")
+		return
+	}
+	ctrl := c.host.proxy
+	if ctrl == nil || !ctrl.Supported() {
+		writeError(w, http.StatusNotImplemented, "proxy_unsupported", "system proxy control is not supported on this platform")
+		return
+	}
+	if removed := ctrl.Describe(); removed != "" {
+		c.hub.appendLog(logEntry{Time: time.Now().UTC(), Line: "cleared system proxy " + removed + " at user request"})
+	}
+	if err := ctrl.Clear(); err != nil {
+		writeError(w, http.StatusConflict, "proxy_clear_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // ---- GET /api/relays --------------------------------------------------------
 
 func (c *core) handleRelays(w http.ResponseWriter, r *http.Request) {
@@ -445,7 +496,7 @@ func (c *core) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if !methodOnly(w, r, http.MethodGet) {
 		return
 	}
-	tail := 200
+	tail := 500
 	if s := r.URL.Query().Get("tail"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 0 {

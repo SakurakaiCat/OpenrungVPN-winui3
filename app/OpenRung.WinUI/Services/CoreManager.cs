@@ -77,6 +77,13 @@ public sealed class CoreManager : IAsyncDisposable
             RedirectStandardOutput = !elevated,
             RedirectStandardError = !elevated,
         };
+        // The core is the proxy itself: its own outbound (broker discovery, relay
+        // dials, telemetry) must never traverse the OS system proxy, or it loops
+        // into our own loopback inbound or a third-party proxy the user runs
+        // alongside. Belt and braces on top of the library-side Proxy=nil
+        // transports — the env covers any client a future code path forgets.
+        psi.Environment["NO_PROXY"] = "*";
+        psi.Environment["no_proxy"] = "*";
         psi.ArgumentList.Add("serve");
         psi.ArgumentList.Add("--heartbeat-timeout");
         psi.ArgumentList.Add("45s");
@@ -101,7 +108,10 @@ public sealed class CoreManager : IAsyncDisposable
         _process.Exited += (_, _) =>
         {
             if (!_intentionalStop)
+            {
+                AppLog.Write($"core exited unexpectedly (code {_process.ExitCode})");
                 CoreExited?.Invoke(this, EventArgs.Empty);
+            }
         };
         // Core writes its own startup lines to stdout/stderr; drain or the
         // buffer fills and blocks the child once the tunnel gets chatty.
@@ -113,6 +123,7 @@ public sealed class CoreManager : IAsyncDisposable
 
         _endpoint = await WaitForEndpointAsync(ct).ConfigureAwait(false);
         _api = new CoreApiClient(_endpoint.Port, _endpoint.Token);
+        AppLog.Write($"core {(elevated ? "restarted elevated" : "started")}: 127.0.0.1:{_endpoint.Port} (PID {_endpoint.Pid})");
         StartHeartbeat();
         return _api;
     }
@@ -131,6 +142,7 @@ public sealed class CoreManager : IAsyncDisposable
             {
                 _endpoint = ep;
                 _api = api;
+                AppLog.Write($"core already running, adopted: 127.0.0.1:{ep.Port} (PID {ep.Pid})");
                 StartHeartbeat();
                 return api;
             }
@@ -225,7 +237,10 @@ public sealed class CoreManager : IAsyncDisposable
                 catch
                 {
                     if (!_intentionalStop)
+                    {
+                        AppLog.Write("heartbeat failed; core unreachable");
                         CoreExited?.Invoke(this, EventArgs.Empty);
+                    }
                     return;
                 }
             }
@@ -261,6 +276,7 @@ public sealed class CoreManager : IAsyncDisposable
         _process = null;
         _api = null;
         _endpoint = null;
+        AppLog.Write("core stopped");
     }
 
     /// <summary>Restart the core running elevated (for TUN mode). Caller re-issues SetMode+Connect after.</summary>

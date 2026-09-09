@@ -78,3 +78,36 @@ func (c *windowsController) Restore(snap Snapshot) error {
 	}
 	return nil
 }
+
+// Describe reports the user's configured manual proxy ("host:port"), falling
+// back to the PAC URL when one is set, and "" when the proxy is disabled.
+func (c *windowsController) Describe() string {
+	state, err := c.backend.read()
+	if err != nil {
+		return ""
+	}
+	if state.ProxyEnable && state.ProxyServer != "" {
+		return state.ProxyServer
+	}
+	return state.AutoConfigURL
+}
+
+// Clear disables the manual proxy and removes the PAC URL, so no third-party
+// proxy remains in force. The bypass list is left in place: it is inert while
+// the proxy is off and may be the user's own.
+func (c *windowsController) Clear() error {
+	state, err := c.backend.read()
+	if err != nil {
+		return fmt.Errorf("read windows proxy: %w", err)
+	}
+	state.ProxyEnable = false
+	state.ProxyServer = ""
+	state.AutoConfigURL = ""
+	if err := c.backend.write(state); err != nil {
+		return fmt.Errorf("clear windows proxy: %w", err)
+	}
+	if err := c.backend.notify(); err != nil {
+		return fmt.Errorf("notify windows proxy change: %w", err)
+	}
+	return nil
+}

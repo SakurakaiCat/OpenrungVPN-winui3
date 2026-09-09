@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using OpenRung.WinUI.Models;
 using OpenRung.WinUI.Services;
 
 namespace OpenRung.WinUI.Views;
@@ -14,6 +16,20 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _endpointText = "";
+
+    /// <summary>Current OS system proxy ("host:port" / PAC) or "无".</summary>
+    [ObservableProperty]
+    private string _systemProxyText = "无";
+
+    [ObservableProperty]
+    private bool _autoClearProxy;
+
+    [ObservableProperty]
+    private bool _proxyBusy;
+
+    public bool NotProxyBusy => !ProxyBusy;
+
+    partial void OnProxyBusyChanged(bool value) => OnPropertyChanged(nameof(NotProxyBusy));
 }
 
 public sealed partial class SettingsPage : Page
@@ -21,6 +37,7 @@ public sealed partial class SettingsPage : Page
     public SettingsViewModel ViewModel { get; } = new();
 
     private bool _suppressSelectionChanged;
+    private bool _suppressAutoClear;
 
     public SettingsPage()
     {
@@ -32,6 +49,14 @@ public sealed partial class SettingsPage : Page
             _suppressSelectionChanged = true;
             ModeCombo.SelectedIndex = App.State.Mode == "tun" ? 1 : 0;
             _suppressSelectionChanged = false;
+
+            // Persisted auto-clear preference + live system-proxy display.
+            _suppressAutoClear = true;
+            ViewModel.AutoClearProxy = AppSettings.Load().AutoClearProxy;
+            _suppressAutoClear = false;
+            ViewModel.SystemProxyText = ProxyText(App.State.SystemProxy);
+            App.Supervisor.StateChanged += OnStateChanged;
+            Unloaded += OnPageUnloaded;
 
             try
             {
@@ -46,6 +71,68 @@ public sealed partial class SettingsPage : Page
         };
     }
 
+    private static string ProxyText(string? systemProxy) =>
+        string.IsNullOrEmpty(systemProxy) ? "无" : systemProxy;
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        Unloaded -= OnPageUnloaded;
+        App.Supervisor.StateChanged -= OnStateChanged;
+    }
+
+    private void OnStateChanged(object? sender, StateSnapshot state)
+    {
+        var text = ProxyText(state.SystemProxy);
+        if (ViewModel.SystemProxyText != text)
+            ViewModel.SystemProxyText = text;
+    }
+
+    private void PersistAutoClear(bool value)
+    {
+        var s = AppSettings.Load();
+        s.AutoClearProxy = value;
+        s.Save();
+    }
+
+    private async void AutoClearProxy_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_suppressAutoClear)
+            return;
+        PersistAutoClear(true);
+        await ClearNowAsync("auto-clear enabled");
+    }
+
+    private void AutoClearProxy_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (_suppressAutoClear)
+            return;
+        PersistAutoClear(false);
+        AppLog.Write("auto-clear system proxy disabled");
+    }
+
+    private async void ClearProxy_Click(object sender, RoutedEventArgs e) =>
+        await ClearNowAsync("user request");
+
+    private async Task ClearNowAsync(string reason)
+    {
+        if (ViewModel.ProxyBusy)
+            return;
+        ViewModel.ProxyBusy = true;
+        try
+        {
+            await App.Supervisor.Core.Api.ClearSystemProxyAsync();
+            AppLog.Write($"system proxy cleared ({reason})");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"clear system proxy failed: {ex.Message}");
+        }
+        finally
+        {
+            ViewModel.ProxyBusy = false;
+        }
+    }
+
     private async void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelectionChanged || ModeCombo.SelectedItem is not ComboBoxItem item)
@@ -55,6 +142,7 @@ public sealed partial class SettingsPage : Page
         try
         {
             await App.Supervisor.Core.Api.SetModeAsync(mode);
+            AppLog.Write($"mode switched to {mode}");
         }
         catch (ElevationRequiredException ex)
         {
@@ -85,9 +173,11 @@ public sealed partial class SettingsPage : Page
             catch (OperationCanceledException)
             {
                 // user declined UAC; the combo already shows the old mode
+                AppLog.Write("elevation cancelled by user (UAC declined)");
             }
             catch (Exception ex2)
             {
+                AppLog.Write($"elevated restart failed: {ex2.Message}");
                 var err = new ContentDialog
                 {
                     Title = "重启失败",

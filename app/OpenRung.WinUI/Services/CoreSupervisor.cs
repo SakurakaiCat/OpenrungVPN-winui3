@@ -74,6 +74,7 @@ public sealed class CoreSupervisor : IAsyncDisposable
             }
             if (ct.IsCancellationRequested)
                 return;
+            AppLog.Write($"event stream dropped; reconnecting in {delay.TotalSeconds:0.#}s");
             ConnectionLost?.Invoke(this, EventArgs.Empty);
             await Task.Delay(delay, ct).ConfigureAwait(false);
             delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 10));
@@ -110,8 +111,10 @@ public sealed class CoreSupervisor : IAsyncDisposable
         {
             _eventsCts?.Cancel();
         }
+        AppLog.Write("restarting core elevated for TUN mode (UAC prompt expected)");
         await _core.RestartElevatedAsync(ct).ConfigureAwait(false);
         RestartEventStream();
+        AppLog.Write("elevated core ready; event stream restarted");
     }
 
     public async ValueTask DisposeAsync()

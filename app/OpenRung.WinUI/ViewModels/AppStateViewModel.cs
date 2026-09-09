@@ -53,6 +53,10 @@ public partial class AppStateViewModel : ObservableObject
     [ObservableProperty]
     private bool _elevated;
 
+    /// <summary>OS system proxy currently in effect ("host:port" or PAC), "" when none.</summary>
+    [ObservableProperty]
+    private string _systemProxy = "";
+
     private DateTimeOffset? _connectedAt;
 
     public bool IsConnected => Status == "connected";
@@ -95,6 +99,7 @@ public partial class AppStateViewModel : ObservableObject
             LastError = s.LastError;
             Mode = s.Mode;
             Elevated = s.Elevated;
+            SystemProxy = s.SystemProxy ?? "";
             ProxyText = s.Proxy is not null ? $"{s.Proxy.Host}:{s.Proxy.Port}" : "";
             TransportText = s.Connection is not null ? s.Connection.Transport : "";
             _connectedAt = s.Connection?.StartedAt;

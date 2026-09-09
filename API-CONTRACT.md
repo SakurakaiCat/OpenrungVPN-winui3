@@ -44,14 +44,19 @@ All success bodies are JSON. All error bodies are `{"error":"human readable","co
   } | null,
   "recents":[{"countryCode":"DE","label":"Germany #3","latitude":52.5,"longitude":13.4}],
   "elevated": true,
-  "coreVersion":"1.0.0"
+  "coreVersion":"1.0.0",
+  "systemProxy":"127.0.0.1:57777"
 }
 ```
+`systemProxy` is the OS system proxy currently in effect (`"host:port"` or a PAC
+URL), `""` when none. While connected in proxy mode it is the endpoint the core
+itself set; otherwise it is a pre-existing third-party proxy (another proxy
+client the user runs), which the UI may surface and clear via `POST /api/proxy`.
 
 ### GET /api/events (Server-Sent Events)
 `Content-Type: text/event-stream`. Long-lived. Events:
 - `event: state\ndata: <StateSnapshot JSON>\n\n` — sent immediately on connect and on every state change.
-- `event: log\ndata: {"time":"<RFC3339>","line":"..."}\n\n` — on connect, last 200 buffered log lines are replayed first, then live lines.
+- `event: log\ndata: {"time":"<RFC3339>","line":"..."}\n\n` — on connect, last 500 buffered log lines are replayed first, then live lines. The core keeps a 2000-line ring.
 - comment `:ping` every 15 s as keepalive.
 
 ### POST /api/connect
@@ -71,6 +76,18 @@ Body: `{"mode":"proxy"|"tun"}`.
 - `428 {...,"code":"elevation_required"}` when mode=tun and the core is not elevated (Windows).
 The mode persists across core restarts (settings.json in the openrung config dir).
 
+### POST /api/proxy
+Body: `{"clear":true}` — disables the OS system proxy outright (manual proxy and
+PAC URL), for removing a pre-existing third-party proxy before taking over.
+- `200 {"ok":true}`
+- `400` on a bad body or any action other than `clear`
+- `501 {"error":...,"code":"proxy_unsupported"}` on platforms without OS proxy control
+- `409 {"error":...,"code":"proxy_clear_failed"}` when the platform write failed
+
+Default behavior without this endpoint: proxy mode captures the existing proxy
+before pointing the OS at the local inbound and restores it on disconnect (or
+crash recovery at next start). TUN mode never touches the OS proxy.
+
 ### GET /api/relays?ranked=1&broker=
 Returns ranked relay directory (TCP latency probed, same ranking the connect ladder uses):
 ```json
@@ -81,7 +98,8 @@ Returns ranked relay directory (TCP latency probed, same ranking the connect lad
 ```
 `latencyMs` null when not probed or probe failed. Errors: 502 `{"error":...}`.
 
-### GET /api/logs?tail=200 → `{"logs":[{"time":"...","line":"..."}]}`
+### GET /api/logs?tail=500 → `{"logs":[{"time":"...","line":"..."}]}`
+Default `tail` is 500; the ring holds 2000 lines.
 
 ### POST /api/heartbeat → 204
 UI sends every 5 s while running. If `--heartbeat-timeout` was given and no request
@@ -100,3 +118,8 @@ endpoint file removed). The UI sends this on exit and before relaunching elevate
   crashed core is restored automatically (existing connectcore behavior).
 - The core identifies to the broker as the desktop platform (default), same wire
   behavior as the Wails app.
+- The core's own outbound traffic (broker discovery, WSS tickets/relay dials,
+  telemetry, geo, punch) never uses the OS system proxy: it is the proxy itself,
+  and routing its traffic through a third-party proxy (or its own loopback
+  inbound) would loop. Its API client (the UI's `HttpClient`) is likewise built
+  with `UseProxy=false` so UI→core calls are direct.

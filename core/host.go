@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"time"
 
 	"github.com/openrung/openrung/connectcore"
 
@@ -21,6 +22,7 @@ import (
 type engineHost struct {
 	engine    *connectcore.Engine
 	elevation elevation
+	proxy     proxymode.Controller
 }
 
 func newEngineHost(sink connectcore.EventSink) (*engineHost, error) {
@@ -36,14 +38,18 @@ func newEngineHost(sink connectcore.EventSink) (*engineHost, error) {
 	engine.SingBoxPath = singBoxPath
 	engine.SingBoxStopsOnStdinClose = true
 	engine.PunchEstablisher = enginepunch.Establish
-	engine.OSProxy = osProxyAdapter{ctrl: proxymode.New()}
+	ctrl := proxymode.New()
+	engine.OSProxy = osProxyAdapter{
+		ctrl: ctrl,
+		log:  func(line string) { sink.Log(connectcore.LogEntry{Time: time.Now().UTC(), Line: line}) },
+	}
 	engine.Elevation = elevation{}
 	// Platform is left at the engine default so the core identifies to the
 	// broker exactly like the desktop GUI (connectcore.PlatformDesktop).
 	if store, err := clientstate.New(); err == nil {
 		engine.Persistence = storeAdapter{store: store}
 	}
-	return &engineHost{engine: engine, elevation: elevation{}}, nil
+	return &engineHost{engine: engine, elevation: elevation{}, proxy: ctrl}, nil
 }
 
 // The adapters below copy cmd/client/host.go: they bridge connectcore's
@@ -101,11 +107,21 @@ func (a storeAdapter) ClearProxySnapshot() error {
 
 // osProxyAdapter implements connectcore.OSProxy over the per-OS controllers in
 // internal/proxymode.
-type osProxyAdapter struct{ ctrl proxymode.Controller }
+type osProxyAdapter struct {
+	ctrl proxymode.Controller
+	log  func(string)
+}
 
 func (a osProxyAdapter) Supported() bool { return a.ctrl.Supported() }
 
 func (a osProxyAdapter) Snapshot() (connectcore.OSProxySnapshot, error) {
+	// The engine sees the snapshot as opaque, so this adapter is where the
+	// takeover becomes visible: record what was there so the log explains a
+	// proxy the user set up outside this app being displaced (and later
+	// restored).
+	if existing := a.ctrl.Describe(); existing != "" {
+		a.log("taking over existing system proxy " + existing + " — it will be restored on disconnect")
+	}
 	return a.ctrl.Snapshot()
 }
 
