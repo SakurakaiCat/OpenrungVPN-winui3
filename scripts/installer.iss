@@ -7,6 +7,11 @@
 #ifndef AppVersion
 #define AppVersion "0.0.0"
 #endif
+; iscc resolves Source/Output paths relative to THIS script's directory,
+; not the invoking working directory — the repo layout puts the assembled
+; tree and the redist one level up.
+#define DistDir "..\dist"
+#define RootDir ".."
 
 [Setup]
 AppId={{7A1E5C36-9B44-4F8D-9A02-51D0E7C3B6A4}
@@ -42,8 +47,8 @@ SetupAppTitle={#AppName} {#AppVersion} 安装向导 / Setup
 ; next to dist\.
 
 [Files]
-Source: "dist\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#RootDir}\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\OpenRung.WinUI.exe"
