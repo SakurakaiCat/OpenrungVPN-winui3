@@ -12,6 +12,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -40,8 +41,18 @@
             IsIndeterminate="{x:Bind ViewModel.Loading, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.Loading, Mode=OneWay}" />
 
-        <ListView
+        <!-- Inline error surface: keeps refresh failures visible even before
+             the page has a XamlRoot (a ContentDialog would crash there). -->
+        <InfoBar
             Grid.Row="2"
+            Margin="0,8,0,0"
+            IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.Error, Mode=OneWay}"
+            Severity="Error"
+            Title="刷新失败" />
+
+        <ListView
+            Grid.Row="3"
             Margin="0,8,0,0"
             ItemsSource="{x:Bind ViewModel.Relays, Mode=OneWay}"
             SelectedItem="{x:Bind ViewModel.Selected, Mode=TwoWay}"
@@ -55,16 +66,18 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock
+                        <Image
                             Grid.Column="0"
+                            Width="24"
+                            Height="18"
+                            HorizontalAlignment="Left"
                             VerticalAlignment="Center"
-                            FontSize="18"
-                            Text="{x:Bind CountryCode, Mode=OneTime}" />
+                            Source="{x:Bind FlagImage, Mode=OneTime}" />
                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock FontWeight="SemiBold" Text="{x:Bind Label}" />
+                            <TextBlock FontWeight="SemiBold" Text="{x:Bind DisplayTitle, Mode=OneTime}" />
                             <TextBlock
                                 Style="{StaticResource CaptionTextBlockStyle}"
-                                Text="{x:Bind City}" />
+                                Text="{x:Bind Label}" />
                         </StackPanel>
                         <TextBlock
                             Grid.Column="2"

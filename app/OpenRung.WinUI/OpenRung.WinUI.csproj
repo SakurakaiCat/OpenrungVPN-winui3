@@ -28,4 +28,9 @@
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250228001" />
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Public-domain flags (flagcdn.com w40) referenced via ms-appx. -->
+		<Content Include="Assets\Flags\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
 </Project>

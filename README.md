@@ -43,3 +43,11 @@ is fully portable: copy it anywhere and run `OpenRung.WinUI.exe`.
 
 Double-click `OpenRung.WinUI.exe`. The big button connects; the mode switch
 chooses 代理 / TUN. The icon sits in the system tray.
+
+## License
+
+GPL-3.0. This client is a fork of the upstream
+[openrung/openrung](https://github.com/openrung/openrung) project (also GPL-3.0),
+maintained by [@SakurakaiCat](https://github.com/SakurakaiCat); the
+`libs/` directory carries those first-party modules under their original
+license.

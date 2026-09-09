@@ -39,5 +39,28 @@
                 Style="{StaticResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.EndpointText, Mode=OneWay}" />
         </StackPanel>
+
+        <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="关于" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap">
+                <Run Text="OpenRung WinUI3 由 " />
+                <Run FontWeight="SemiBold" Text="@SakurakaiCat" />
+                <Run Text=" 基于 OpenRung 仓库二次开发。" />
+            </TextBlock>
+            <HyperlinkButton
+                Content="OpenRung 上游仓库 · github.com/openrung/openrung"
+                NavigateUri="https://github.com/openrung/openrung" />
+            <HyperlinkButton
+                Content="本客户端仓库 · github.com/SakurakaiCat/openrung-winui3"
+                NavigateUri="https://github.com/SakurakaiCat/openrung-winui3" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap"
+                Text="Copyright © 2026 @SakurakaiCat。本客户端基于上游 OpenRung 的修改作品，与上游 OpenRung 均以 GNU General Public License v3.0（GPL-3.0）发布，详见仓库根目录的 LICENSE 文件。" />
+        </StackPanel>
     </StackPanel>
 </Page>
