@@ -7,7 +7,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <StackPanel Padding="24" Spacing="16" MaxWidth="560">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" VerticalScrollMode="Enabled">
+        <StackPanel Padding="24" Spacing="16" MaxWidth="560">
         <TextBlock FontSize="20" FontWeight="SemiBold" Text="设置" />
 
         <StackPanel Spacing="4">
@@ -55,31 +56,37 @@
 
         <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="关于" />
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <Border Width="48" Height="48" CornerRadius="8">
-                    <Image Width="48" Height="48">
-                        <Image.Source>
-                            <SvgImageSource
-                                RasterizePixelHeight="96"
-                                RasterizePixelWidth="96"
-                                UriSource="ms-appx:///Assets/openrung-mark.svg" />
-                        </Image.Source>
-                    </Image>
-                </Border>
-                <Border Width="48" Height="48" CornerRadius="24">
-                    <Image Width="48" Height="48">
-                        <Image.Source>
-                            <BitmapImage UriSource="ms-appx:///Assets/avatar.jpg" />
-                        </Image.Source>
-                    </Image>
-                </Border>
-                <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="OpenRung VPN" />
-                    <TextBlock
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        Text="OpenRung VPN WinUI3 客户端" />
-                </StackPanel>
+            <StackPanel HorizontalAlignment="Center" Spacing="12">
+                <Image Width="128" Height="128" HorizontalAlignment="Center">
+                    <Image.Source>
+                        <SvgImageSource
+                            RasterizePixelHeight="256"
+                            RasterizePixelWidth="256"
+                            UriSource="ms-appx:///Assets/openrung-mark.svg" />
+                    </Image.Source>
+                </Image>
+                <TextBlock
+                    FontSize="20"
+                    FontWeight="SemiBold"
+                    HorizontalAlignment="Center"
+                    Text="OpenRung VPN" />
+                <Image
+                    Width="88"
+                    Height="88"
+                    HorizontalAlignment="Center">
+                    <Image.Source>
+                        <BitmapImage UriSource="ms-appx:///Assets/avatar.jpg" />
+                    </Image.Source>
+                </Image>
+                <HyperlinkButton
+                    HorizontalAlignment="Center"
+                    Content="GitHub @SakurakaiCat"
+                    NavigateUri="https://github.com/SakurakaiCat" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="OpenRung VPN WinUI3 客户端 · 维护者 @SakurakaiCat" />
             </StackPanel>
             <TextBlock x:Name="AppVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
             <TextBlock
@@ -113,4 +120,5 @@
                 Text="Copyright © 2026 @SakurakaiCat。本客户端基于上游 OpenRung 的修改作品，与上游 OpenRung 均以 GNU General Public License v3.0（GPL-3.0）发布，详见仓库根目录的 LICENSE 文件。" />
         </StackPanel>
     </StackPanel>
+    </ScrollViewer>
 </Page>
