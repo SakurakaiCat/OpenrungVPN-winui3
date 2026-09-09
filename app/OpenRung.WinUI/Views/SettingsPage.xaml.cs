@@ -113,5 +113,13 @@ public sealed partial class SettingsPage : Page
             ModeCombo.SelectedIndex = App.State.Mode == "tun" ? 1 : 0;
             _suppressSelectionChanged = false;
         }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            // Connection-level failure (core dead / restarting): refused
+            // sockets surface here, not as CoreApiException.
+            _suppressSelectionChanged = true;
+            ModeCombo.SelectedIndex = App.State.Mode == "tun" ? 1 : 0;
+            _suppressSelectionChanged = false;
+        }
     }
 }

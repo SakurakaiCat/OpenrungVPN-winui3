@@ -9,10 +9,45 @@ public sealed partial class HomePage : Page
 {
     public AppStateViewModel ViewModel => App.State;
 
+    /// <summary>Relay directory state, bound by the home server card.</summary>
+    public ServersViewModel Servers => App.Servers;
+
     public HomePage()
     {
         InitializeComponent();
     }
+
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        if (Servers.Relays.Count == 0)
+            _ = LoadRelaysAsync();
+    }
+
+    // Fire-and-forget initial load: the home card surfaces failures inline
+    // (Servers.Error) instead of a dialog, so no XamlRoot is needed.
+    private async System.Threading.Tasks.Task LoadRelaysAsync()
+    {
+        Servers.Loading = true;
+        Servers.Error = null;
+        try
+        {
+            await RelayDirectory.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Servers.Error = ex.Message;
+        }
+        finally
+        {
+            Servers.Loading = false;
+        }
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadRelaysAsync();
+
+    private void AutoSelect_Click(object sender, RoutedEventArgs e) =>
+        RelayDirectory.SelectLowestLatency(Servers);
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
@@ -24,7 +59,7 @@ public sealed partial class HomePage : Page
                 return;
             }
 
-            var server = App.Servers.Selected;
+            var server = Servers.Selected;
             await App.Supervisor.Core.Api.ConnectAsync(relayId: server?.Id);
         }
         catch (ElevationRequiredException ex)
@@ -34,6 +69,12 @@ public sealed partial class HomePage : Page
         catch (CoreApiException ex)
         {
             ShowError(ex.Message);
+        }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            // Connection-level failure (core dead / restarting): PostAsyncOk only
+            // wraps HTTP error responses, refused sockets surface here.
+            ShowError("无法连接核心进程，请稍后重试。");
         }
     }
 
@@ -62,7 +103,7 @@ public sealed partial class HomePage : Page
         try
         {
             await App.Supervisor.RestartElevatedAsync();
-            await App.Supervisor.Core.Api.ConnectAsync(relayId: App.Servers.Selected?.Id);
+            await App.Supervisor.Core.Api.ConnectAsync(relayId: Servers.Selected?.Id);
         }
         catch (OperationCanceledException)
         {

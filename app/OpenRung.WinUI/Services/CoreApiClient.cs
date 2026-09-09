@@ -19,7 +19,14 @@ public sealed class CoreApiClient
     public CoreApiClient(int port, string token, HttpClient? inner = null)
     {
         Port = port;
-        _http = inner ?? new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
+        // The core itself owns the system proxy (loopback sing-box listener).
+        // Routing sidecar API traffic through the OS proxy would send our
+        // POSTs into that listener, which rejects non-GET/CONNECT methods
+        // with 405 - so loopback management traffic always goes direct.
+        _http = inner ?? new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            Timeout = TimeSpan.FromSeconds(100),
+        };
         _http.DefaultRequestHeaders.Add("X-OpenRung-Token", token);
         BaseAddress = new Uri($"http://127.0.0.1:{port}");
     }

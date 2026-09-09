@@ -5,48 +5,76 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:m="using:OpenRung.WinUI.Models"
     mc:Ignorable="d">
 
-    <Grid Padding="24">
+    <!-- WARP-style home: one huge circular power button on the left, the
+         relay directory beside it so picking a server never leaves the page. -->
+    <Grid Padding="24" RowSpacing="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Big connect area -->
-        <Border
-            Grid.Row="1"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Padding="32"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="8"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <StackPanel Spacing="16" HorizontalAlignment="Center">
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Connect area -->
+            <StackPanel
+                Grid.Column="0"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12">
+                <!-- WARP-style switch: pill track, sliding white knob. -->
+                <Button
+                    x:Name="ConnectButton"
+                    Width="220"
+                    Height="112"
+                    Padding="0"
+                    HorizontalAlignment="Center"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    CornerRadius="56"
+                    Click="ConnectButton_Click"
+                    AutomationProperties.Name="{x:Bind ViewModel.ConnectButtonText, Mode=OneWay}"
+                    IsEnabled="{x:Bind ViewModel.NotBusy, Mode=OneWay}"
+                    ToolTipService.ToolTip="{x:Bind ViewModel.ConnectButtonText, Mode=OneWay}">
+                    <Grid Width="220" Height="112">
+                        <Border
+                            CornerRadius="56"
+                            Background="{x:Bind ViewModel.ToggleBrush, Mode=OneWay}" />
+                        <Ellipse
+                            Width="88"
+                            Height="88"
+                            Margin="{x:Bind ViewModel.KnobMargin, Mode=OneWay}"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Fill="White" />
+                        <ProgressRing
+                            Width="52"
+                            Height="52"
+                            Foreground="White"
+                            IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    </Grid>
+                </Button>
+
                 <TextBlock
                     HorizontalAlignment="Center"
-                    FontSize="28"
+                    FontSize="26"
                     FontWeight="SemiBold"
                     Text="{x:Bind ViewModel.RelayLabel, Mode=OneWay, FallbackValue='未连接'}" />
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-                    <TextBlock VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}">
-                        <Run Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
-                        <Run Text=" · " />
-                        <Run Text="{x:Bind ViewModel.Mode, Mode=OneWay}" />
-                    </TextBlock>
-                </StackPanel>
-
-                <Button
-                    x:Name="ConnectButton"
-                    Width="200"
-                    Height="40"
+                <TextBlock
                     HorizontalAlignment="Center"
-                    Click="ConnectButton_Click"
-                    Content="{x:Bind ViewModel.ConnectButtonText, Mode=OneWay}"
-                    IsEnabled="{x:Bind ViewModel.NotBusy, Mode=OneWay}" />
+                    Style="{StaticResource CaptionTextBlockStyle}">
+                    <Run Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
+                    <Run Text=" · " />
+                    <Run Text="{x:Bind ViewModel.Mode, Mode=OneWay}" />
+                </TextBlock>
 
                 <TextBlock
                     HorizontalAlignment="Center"
@@ -54,11 +82,110 @@
                     Text="{x:Bind ViewModel.ElapsedText, Mode=OneWay}"
                     Visibility="{x:Bind ViewModel.IsConnected, Mode=OneWay}" />
             </StackPanel>
-        </Border>
+
+            <!-- Server card -->
+            <Border
+                Grid.Column="1"
+                Width="360"
+                Padding="16"
+                VerticalAlignment="Stretch"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Text="节点" />
+                        <Button
+                            Grid.Column="1"
+                            Padding="8"
+                            Click="AutoSelect_Click"
+                            ToolTipService.ToolTip="自动选择延迟最低的节点">
+                            <FontIcon FontSize="14" Glyph="&#xE945;" />
+                        </Button>
+                        <Button
+                            Grid.Column="2"
+                            Padding="8"
+                            Click="Refresh_Click"
+                            ToolTipService.ToolTip="重新拉取节点列表并测速">
+                            <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                        </Button>
+                    </Grid>
+
+                    <ProgressBar
+                        Grid.Row="1"
+                        IsIndeterminate="{x:Bind Servers.Loading, Mode=OneWay}"
+                        Visibility="{x:Bind Servers.Loading, Mode=OneWay}" />
+
+                    <StackPanel Grid.Row="2" Spacing="2">
+                        <TextBlock
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                            Text="{x:Bind Servers.Error, Mode=OneWay}"
+                            Visibility="{x:Bind Servers.HasError, Mode=OneWay}" />
+                        <TextBlock
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{x:Bind Servers.SummaryText, Mode=OneWay}" />
+                    </StackPanel>
+
+                    <ListView
+                        Grid.Row="3"
+                        ItemsSource="{x:Bind Servers.Relays, Mode=OneWay}"
+                        SelectedItem="{x:Bind Servers.Selected, Mode=TwoWay}"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="m:RelayItem">
+                                <Grid ColumnSpacing="8" Padding="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Image
+                                        Grid.Column="0"
+                                        Width="24"
+                                        Height="18"
+                                        VerticalAlignment="Center"
+                                        Source="{x:Bind FlagImage, Mode=OneTime}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock FontWeight="SemiBold" Text="{x:Bind DisplayTitle, Mode=OneTime}" />
+                                        <TextBlock
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Label}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <TextBlock
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind LatencyText, Mode=OneTime}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
+        </Grid>
 
         <!-- Last error banner -->
         <InfoBar
-            Grid.Row="2"
+            Grid.Row="1"
             x:Name="ErrorBar"
             Severity="Error"
             Title="错误"

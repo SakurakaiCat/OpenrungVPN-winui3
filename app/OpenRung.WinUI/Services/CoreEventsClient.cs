@@ -31,7 +31,13 @@ public sealed class CoreEventsClient
     {
         // No default timeout for SSE — it is a long-lived stream. Only connect
         // is bounded, via the cancellation token the supervisor passes in.
-        using var http = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+        // Same reason as CoreApiClient: loopback API traffic must bypass the
+        // OS proxy the core itself owns, or the SSE GET is proxied through
+        // the tunnel listener and dies with the tunnel.
+        using var http = new HttpClient(new HttpClientHandler { UseProxy = false })
+        {
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+        };
         http.DefaultRequestHeaders.Add("X-OpenRung-Token", _token);
 
         using var resp = await http.GetAsync(_baseAddress + "/api/events",
