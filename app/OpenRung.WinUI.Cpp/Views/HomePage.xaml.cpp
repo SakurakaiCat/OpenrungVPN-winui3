@@ -151,6 +151,17 @@ namespace winrt::OpenRung::WinUI::implementation
     {
         auto state = Services::AppState::Instance().Current();
         auto busy = StateUi::IsBusy(state);
+
+        // The click precedes the core's state transition: keep the spinner up
+        // from the click until the stream confirms the transition (or 10s).
+        if (busy)
+            m_pendingSince.reset();
+        else if (m_pendingSince &&
+            std::chrono::steady_clock::now() - *m_pendingSince < std::chrono::seconds(10))
+            busy = true;
+        else
+            m_pendingSince.reset();
+
         auto connected = StateUi::IsConnected(state);
 
         Services::StartupLog::Write("RenderState 1");
@@ -166,6 +177,13 @@ namespace winrt::OpenRung::WinUI::implementation
 
         StatusLine().Text(state.status + L" · " + state.mode);
 
+        Services::StartupLog::Write("RenderState 3");
+        // Core boot hint: the startup thread clears the flag once the first
+        // EnsureRunning probe/spawn has settled.
+        CoreBootBar().Visibility(Services::AppState::Instance().CoreBooting()
+            ? Visibility::Visible
+            : Visibility::Collapsed);
+
         if (connected && state.connection && state.connection->startedAt)
         {
             ElapsedText().Text(StateUi::FormatElapsed(*state.connection->startedAt));
@@ -175,6 +193,7 @@ namespace winrt::OpenRung::WinUI::implementation
         {
             ElapsedText().Visibility(Visibility::Collapsed);
         }
+        Services::StartupLog::Write("RenderState 4");
     }
 
     void HomePage::ConnectButton_Click(Windows::Foundation::IInspectable const&,
@@ -183,7 +202,7 @@ namespace winrt::OpenRung::WinUI::implementation
         // One connect at a time: a burst of clicks queued five API calls within
         // a second (all of which then raced the state machine's transitions).
         auto state = Services::AppState::Instance().Current();
-        if (StateUi::IsBusy(state))
+        if (StateUi::IsBusy(state) || m_pendingSince)
             return;
 
         auto connected = StateUi::IsConnected(state);
@@ -200,6 +219,11 @@ namespace winrt::OpenRung::WinUI::implementation
                 : L"user clicked connect: " + selectedId);
         }
 
+        // Optimistic busy: the spinner starts now, not when the SSE stream
+        // delivers the core's "connecting" state.
+        m_pendingSince = std::chrono::steady_clock::now();
+        RenderState();
+
         std::thread([this, weak = m_lifetime.Weak(), connected, selectedId] {
             try
             {
@@ -214,6 +238,8 @@ namespace winrt::OpenRung::WinUI::implementation
                 Services::Ui::Post([this, weak, msg = ex.WideMessage()] {
                     if (!StateUi::Lifetime::Live(weak))
                         return;
+                    m_pendingSince.reset();
+                    RenderState();
                     OfferElevatedRestart(msg);
                 });
             }
@@ -222,6 +248,8 @@ namespace winrt::OpenRung::WinUI::implementation
                 Services::Ui::Post([this, weak, msg = ex.WideMessage()] {
                     if (!StateUi::Lifetime::Live(weak))
                         return;
+                    m_pendingSince.reset();
+                    RenderState();
                     ShowError(msg);
                 });
             }
@@ -232,6 +260,8 @@ namespace winrt::OpenRung::WinUI::implementation
                 Services::Ui::Post([this, weak] {
                     if (!StateUi::Lifetime::Live(weak))
                         return;
+                    m_pendingSince.reset();
+                    RenderState();
                     ShowError(L"无法连接核心进程，请稍后重试。");
                 });
             }

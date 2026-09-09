@@ -22,6 +22,11 @@ namespace Services
         /// so the elapsed-time display advances while connected.
         void Tick();
 
+        /// True from process start until the first EnsureRunning probe/spawn
+        /// settles; HomePage shows the boot hint while set. Any thread.
+        void SetCoreBooting(bool booting);
+        bool CoreBooting() const;
+
         using Listener = std::function<void()>;
         /// Listener invoked on the UI thread after every state change / tick.
         void AddListener(void const* key, Listener fn);
@@ -30,6 +35,7 @@ namespace Services
     private:
         mutable std::mutex m_mutex;
         StateSnapshot m_state;
+        bool m_coreBooting = true; // until the first EnsureRunning settles
         std::unordered_map<void const*, Listener> m_listeners;
 
         void Notify();

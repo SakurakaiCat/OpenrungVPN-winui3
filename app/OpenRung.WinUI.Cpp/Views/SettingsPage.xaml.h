@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "SettingsPage.g.h"
 #include "StateUi.h"
+#include "../Services/UpdateCheck.h"
 
 namespace winrt::OpenRung::WinUI::implementation
 {
@@ -20,6 +21,8 @@ namespace winrt::OpenRung::WinUI::implementation
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void ClearProxy_Click(winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void CheckUpdate_Click(winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     private:
         void OnLoaded();
@@ -29,12 +32,14 @@ namespace winrt::OpenRung::WinUI::implementation
         void SetComboIndex(int index);
         void ShowDialog(std::wstring const& title, std::wstring const& content,
             std::wstring const& primary, std::wstring const& close);
+        void ShowUpdateDialog(Services::UpdateInfo const& update);
         void OfferElevation(std::wstring const& why);
         bool ComboModeIsTun();
 
         bool m_suppressSelection = false;
         bool m_suppressAutoClear = false;
         bool m_proxyBusy = false;
+        bool m_updateBusy = false;
         int m_stateKey = 0;
         winrt::event_token m_loadedToken{};
         StateUi::Lifetime m_lifetime;

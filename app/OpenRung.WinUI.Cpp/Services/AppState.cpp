@@ -31,6 +31,23 @@ namespace Services
         Notify();
     }
 
+    void AppState::SetCoreBooting(bool booting)
+    {
+        {
+            std::lock_guard lock(m_mutex);
+            if (m_coreBooting == booting)
+                return;
+            m_coreBooting = booting;
+        }
+        Notify();
+    }
+
+    bool AppState::CoreBooting() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_coreBooting;
+    }
+
     void AppState::Notify()
     {
         // Snapshot listeners under the lock; callbacks can unsubscribe.

@@ -33,6 +33,10 @@ namespace winrt::OpenRung::WinUI::implementation
         int m_storeKey = 0;
         int m_stateKey = 0;
         bool m_suppressSelection = false;
+        // Click-to-busy bridge: set when the user initiates connect/disconnect
+        // and cleared once the core's state stream reports a busy/terminal
+        // status (or after a timeout, if the core never took over).
+        std::optional<std::chrono::steady_clock::time_point> m_pendingSince;
         StateUi::Lifetime m_lifetime;
     };
 }

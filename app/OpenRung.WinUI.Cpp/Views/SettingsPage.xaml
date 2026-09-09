@@ -55,11 +55,38 @@
 
         <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="关于" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Border Width="48" Height="48" CornerRadius="8">
+                    <Image Width="48" Height="48">
+                        <Image.Source>
+                            <SvgImageSource
+                                RasterizePixelHeight="96"
+                                RasterizePixelWidth="96"
+                                UriSource="ms-appx:///Assets/openrung-mark.svg" />
+                        </Image.Source>
+                    </Image>
+                </Border>
+                <Border Width="48" Height="48" CornerRadius="24">
+                    <Image Width="48" Height="48">
+                        <Image.Source>
+                            <BitmapImage UriSource="ms-appx:///Assets/avatar.jpg" />
+                        </Image.Source>
+                    </Image>
+                </Border>
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock FontWeight="SemiBold" Text="OpenRung VPN" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="OpenRung VPN WinUI3 客户端" />
+                </StackPanel>
+            </StackPanel>
+            <TextBlock x:Name="AppVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
                 TextWrapping="Wrap">
-                <Run Text="OpenRung WinUI3 由 " />
+                <Run Text="OpenRung VPN WinUI3 由 " />
                 <Run FontWeight="SemiBold" Text="@SakurakaiCat" />
                 <Run Text=" 基于 OpenRung 仓库二次开发。" />
             </TextBlock>
@@ -67,8 +94,18 @@
                 Content="OpenRung 上游仓库 · github.com/openrung/openrung"
                 NavigateUri="https://github.com/openrung/openrung" />
             <HyperlinkButton
-                Content="本客户端仓库 · github.com/SakurakaiCat/openrung-winui3"
-                NavigateUri="https://github.com/SakurakaiCat/openrung-winui3" />
+                Content="本客户端仓库 · github.com/SakurakaiCat/OpenrungVPN-winui3"
+                NavigateUri="https://github.com/SakurakaiCat/OpenrungVPN-winui3" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button
+                    x:Name="CheckUpdateButton"
+                    Click="CheckUpdate_Click"
+                    Content="检查更新" />
+                <TextBlock
+                    x:Name="UpdateStatusText"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"

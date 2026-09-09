@@ -11,6 +11,7 @@
 #include "Services\AppSettings.h"
 #include "Services\AppState.h"
 #include "Services\CoreSupervisor.h"
+#include "Services\RelayDirectory.h"
 #include "Services\StartupLog.h"
 
 using namespace winrt;
@@ -63,11 +64,14 @@ namespace winrt::OpenRung::WinUI::implementation
 
         // Fire-and-forget: a core startup failure is surfaced on the logs page,
         // never as an unhandled exception that would kill the app.
+        RelayDirectory::StartAutoRefresh();
+        AppLog::Write(L"启动核心…");
         std::thread([] {
             try
             {
                 CoreSupervisor::Instance().Start();
                 AppLog::Write(L"core ready; event stream starting");
+                Services::AppState::Instance().SetCoreBooting(false);
                 if (AppSettings::Load().autoClearProxy)
                 {
                     try
@@ -85,6 +89,7 @@ namespace winrt::OpenRung::WinUI::implementation
             {
                 AppLog::LogCrash(ex.what());
                 AppLog::Write(L"core startup failed: " + Utf8ToWide(ex.what()));
+                Services::AppState::Instance().SetCoreBooting(false);
             }
         }).detach();
     }
