@@ -1,0 +1,95 @@
+name: release
+
+# Builds the portable dist (WinUI app + Go core sidecar) and publishes a
+# pre-release zip. Runs on manual dispatch with a version input, or on a
+# pushed v* tag (which names the release).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. v0.1.0-alpha.1'
+        required: true
+        default: 'v0.1.0-alpha.1'
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  core:
+    name: Build openrung-core.exe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      - name: Build core (windows/amd64)
+        working-directory: core
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+          go build -tags with_utls -trimpath -ldflags "-s -w" \
+            -o ../openrung-core.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core
+          path: openrung-core.exe
+          if-no-files-found: error
+
+  app:
+    name: Build OpenRung.WinUI.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish app (win-x64, self-contained)
+        run: >
+          dotnet publish app/OpenRung.WinUI/OpenRung.WinUI.csproj
+          -c Release -r win-x64 --self-contained
+          -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true
+          -p:PublishSingleFile=false
+          -o dist-app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: dist-app
+          if-no-files-found: error
+
+  release:
+    name: Assemble dist and publish pre-release
+    needs: [core, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: core
+          path: dist/core
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+          path: dist
+
+      - name: Zip portable dist
+        run: |
+          chmod +x dist/core/openrung-core.exe
+          test -x dist/OpenRung.WinUI.exe || test -f dist/OpenRung.WinUI.exe
+          cd dist && zip -qr ../OpenRung-win-x64.zip .
+
+      - name: Publish pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: ${{ inputs.version || github.ref_name }}
+          prerelease: true
+          files: OpenRung-win-x64.zip
