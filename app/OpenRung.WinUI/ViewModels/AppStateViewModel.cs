@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using OpenRung.WinUI.Models;
 using OpenRung.WinUI.Services;
 
@@ -26,6 +28,8 @@ public partial class AppStateViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(NotBusy))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
     [NotifyPropertyChangedFor(nameof(ConnectButtonText))]
+    [NotifyPropertyChangedFor(nameof(ToggleBrush))]
+    [NotifyPropertyChangedFor(nameof(KnobMargin))]
     private string _status = "disconnected";
 
     [ObservableProperty]
@@ -67,6 +71,19 @@ public partial class AppStateViewModel : ObservableObject
     };
 
     public string ConnectButtonText => IsConnected ? "断开连接" : (IsBusy ? "……" : "连接");
+
+    /// <summary>
+    /// Home page's WARP-style switch: orange track while connected, gray
+    /// otherwise. The white knob slides right when connected (see KnobMargin).
+    /// </summary>
+    public Brush ToggleBrush => IsConnected
+        ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xFA, 0x5A, 0x28))
+        : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x6B, 0x72, 0x80));
+
+    /// <summary>Knob position inside the 220-wide track: left when off, right when on.</summary>
+    public Thickness KnobMargin => IsConnected
+        ? new Thickness(120, 0, 0, 0)
+        : new Thickness(12, 0, 0, 0);
 
     /// <summary>Replace the local view of the core state (from SSE or polling).</summary>
     public void ApplyState(StateSnapshot s)

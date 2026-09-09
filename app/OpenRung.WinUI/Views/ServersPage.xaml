@@ -25,7 +25,7 @@
             <Button Grid.Column="0" Click="Refresh_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE72C;" FontSize="12" />
-                    <TextBlock Text="刷新" />
+                    <TextBlock Text="刷新测速" />
                 </StackPanel>
             </Button>
             <TextBlock
@@ -33,6 +33,12 @@
                 VerticalAlignment="Center"
                 Style="{StaticResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.SummaryText, Mode=OneWay}" />
+            <Button Grid.Column="2" Click="AutoSelect_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE945;" FontSize="12" />
+                    <TextBlock Text="自动选择最低延迟" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <ProgressBar
@@ -88,7 +94,7 @@
                             Grid.Column="3"
                             VerticalAlignment="Center"
                             Style="{StaticResource CaptionTextBlockStyle}"
-                            Text="{x:Bind LatencyMs, Mode=OneTime}" />
+                            Text="{x:Bind LatencyText, Mode=OneTime}" />
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

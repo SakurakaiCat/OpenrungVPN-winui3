@@ -18,6 +18,7 @@ public partial class App : Application
     public static LogsViewModel Logs { get; } = new();
 
     private Window? _window;
+    private Mutex? _singleInstance;
 
     public App()
     {
@@ -43,6 +44,14 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Single instance: two supervisors would fight over the shared core
+        // endpoint file (spawn/kill cycles against each other), so a second
+        // launch just exits. The mutex dies with the owning process.
+        bool owned;
+        _singleInstance = new Mutex(true, @"Local\OpenRung.WinUI.SingleInstance", out owned);
+        if (!owned)
+            Environment.Exit(0);
+
         try
         {
             _window = new Views.MainWindow();

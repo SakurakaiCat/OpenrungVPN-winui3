@@ -118,6 +118,10 @@ public sealed class RelayItem
     [JsonPropertyName("latencyMs")]
     public long? LatencyMs { get; set; }
 
+    /// <summary>Row latency cell: "123 ms", or 未测速 when the broker has no probe.</summary>
+    [JsonIgnore]
+    public string LatencyText => LatencyMs.HasValue ? $"{LatencyMs} ms" : "未测速";
+
     /// <summary>
     /// Row title in the 国家+地区+编号 form (e.g. 日本东京1); the supervisor
     /// numbers relays within each (country, city) group after loading. Empty
