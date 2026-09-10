@@ -266,9 +266,27 @@ namespace Services
             {
                 if (args[i]->empty())
                     continue;
-                size_t at;
-                while ((at = text.find(placeholders[i])) != std::wstring::npos)
-                    text.replace(at, placeholders[i].size(), *args[i]);
+                // Single pass: each match appends to `out` and the search
+                // resumes after the placeholder, so inserted text is never
+                // rescanned. A while(find/replace) loop here hangs the UI
+                // thread forever when an argument itself contains "{i}"
+                // (e.g. a template passed through as an argument).
+                std::wstring out;
+                out.reserve(text.size() + args[i]->size());
+                size_t pos = 0;
+                for (;;)
+                {
+                    size_t at = text.find(placeholders[i], pos);
+                    if (at == std::wstring::npos)
+                    {
+                        out.append(text, pos, std::wstring::npos);
+                        break;
+                    }
+                    out.append(text, pos, at - pos);
+                    out.append(*args[i]);
+                    pos = at + placeholders[i].size();
+                }
+                text = std::move(out);
             }
             return text;
         }

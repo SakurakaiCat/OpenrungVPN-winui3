@@ -547,12 +547,19 @@ namespace Services
     void CoreManager::Restart()
     {
         Stop();
+        // Stop() leaves m_stopping set so no stray EnsureRunning can spawn a
+        // core behind a teardown; an explicit restart is the one caller that
+        // must start again, so clear it here. Without this, EnsureRunning's
+        // "core is shutting down" guard threw forever and every later connect
+        // failed until the app was restarted.
+        m_stopping = false;
         EnsureRunning(false);
     }
 
     void CoreManager::RestartElevated()
     {
         Stop();
+        m_stopping = false;
         EnsureRunning(true);
     }
 
