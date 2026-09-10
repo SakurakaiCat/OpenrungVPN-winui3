@@ -378,6 +378,14 @@ type Engine struct {
 	// a host that never calls SetMode keeps the pre-B3 behavior.
 	mode Mode
 
+	// tunnelDNSServers / tunnelDNSIPv6Disabled are the user-configured tunnel
+	// DNS (see dns.go: SetTunnelDNS). Nil servers = the config builder's
+	// defaults; the IPv6 zero value keeps the TUN inbound's v6 address, so
+	// hosts that never call SetTunnelDNS stay byte-identical. Guarded by mu;
+	// mutated only while no connection is live.
+	tunnelDNSServers      []string
+	tunnelDNSIPv6Disabled bool
+
 	directory *directoryCache
 
 	// netMu guards the platform network-signal tracker (see network.go):
@@ -1041,6 +1049,20 @@ func (s *Engine) attemptDirectCandidate(ctx context.Context, conn *connection, c
 func (s *Engine) candidateConfigInput(cand brokerapi.RelayDescriptor, port int) client.SingBoxConfigInput {
 	mode := s.Mode()
 	input := client.SingBoxConfigInput{Relay: cand, Mode: mode.inboundMode()}
+
+	// User-configured tunnel DNS (SetTunnelDNS): server list and the IPv6
+	// switch. Disabling IPv6 drops the TUN inbound's v6 address and pins the
+	// DNS strategy to ipv4_only (see dns.go for why both move together).
+	s.mu.Lock()
+	dnsServers := s.tunnelDNSServers
+	ipv6Disabled := s.tunnelDNSIPv6Disabled
+	s.mu.Unlock()
+	input.DNSServers = dnsServers
+	if ipv6Disabled {
+		input.IPv6Disabled = true
+		input.DNSStrategy = "ipv4_only"
+	}
+
 	if mode == ModeTUN {
 		input.MTU = s.TunnelMTU
 		return input

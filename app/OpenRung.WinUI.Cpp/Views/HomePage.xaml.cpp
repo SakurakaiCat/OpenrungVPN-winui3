@@ -99,7 +99,11 @@ namespace winrt::OpenRung::WinUI::implementation
         if (m_suppressSelection)
             return;
         if (auto row = RelayList().SelectedItem().try_as<winrt::OpenRung::WinUI::RelayRow>())
+        {
             Services::RelayStore::Instance().SetSelectedId(std::wstring(row.Id()));
+            // Live session: selecting a different relay switches to it now.
+            Services::RelayDirectory::SwitchToSelected();
+        }
     }
 
     void HomePage::OnStoreChanged()

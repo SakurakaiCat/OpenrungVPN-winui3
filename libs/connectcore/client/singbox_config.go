@@ -159,6 +159,27 @@ type SingBoxConfigInput struct {
 	// sing-box's traffic accounting, which feeds the cumulative
 	// bytes_sent/bytes_received counters mobile reports with session telemetry.
 	ClashAPI bool
+	// DNSStrategy pins the DNS block's resolution strategy (sing-box
+	// dns.strategy): "prefer_ipv4", "prefer_ipv6", "ipv4_only", or
+	// "ipv6_only". Empty keeps sing-box's default ("as-is": A and AAAA are
+	// queried together), so existing callers stay byte-identical. Validate
+	// with validateDNSStrategy.
+	DNSStrategy string
+	// IPv6Disabled drops the TUN inbound's IPv6 address, leaving IPv4 only.
+	// The desktop's "IPv6 off" toggle pairs it with DNSStrategy "ipv4_only"
+	// so apps never learn AAAA addresses to dial. Zero (enabled) keeps the
+	// v6 address and byte-identical behavior for existing callers.
+	IPv6Disabled bool
+}
+
+// validateDNSStrategy rejects strategies sing-box would refuse at startup.
+func validateDNSStrategy(strategy string) error {
+	switch strategy {
+	case "", "prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only":
+		return nil
+	default:
+		return fmt.Errorf("invalid DNS strategy %q (want prefer_ipv4, prefer_ipv6, ipv4_only, or ipv6_only)", strategy)
+	}
 }
 
 func BuildSingBoxConfig(input SingBoxConfigInput) ([]byte, error) {
@@ -166,6 +187,9 @@ func BuildSingBoxConfig(input SingBoxConfigInput) ([]byte, error) {
 		return nil, err
 	}
 	if err := validateSplitTunnel(input); err != nil {
+		return nil, err
+	}
+	if err := validateDNSStrategy(input.DNSStrategy); err != nil {
 		return nil, err
 	}
 
@@ -299,13 +323,22 @@ func buildInbound(input SingBoxConfigInput, tunnelIPv4Address, tunnelIPv6Address
 	tunInbound := map[string]any{
 		"type":                     "tun",
 		"tag":                      "tun-in",
-		"address":                  []string{tunnelIPv4Address, tunnelIPv6Address},
 		"mtu":                      mtu,
 		"auto_route":               true,
 		"strict_route":             true,
 		"stack":                    "system",
 		"dns_mode":                 "hijack",
 		"endpoint_independent_nat": true,
+	}
+	if input.IPv6Disabled {
+		// IPv6 off: the TUN captures IPv4 only, so no v6 default route is
+		// installed. Pair with the dns.strategy "ipv4_only" (the caller's
+		// job) so apps never learn AAAA addresses to dial — without it,
+		// v6-destined traffic would bypass the tunnel on the physical
+		// network instead of failing fast.
+		tunInbound["address"] = []string{tunnelIPv4Address}
+	} else {
+		tunInbound["address"] = []string{tunnelIPv4Address, tunnelIPv6Address}
 	}
 	if input.SplitTunnel != nil && len(input.SplitTunnel.ExcludedPackages) > 0 {
 		// Excluded apps leave the VPN at the OS level (Android). NEVER emit
@@ -366,10 +399,14 @@ func dnsServerObjects(servers []string) []any {
 // mobile's (see DNSShapeDoHFailover).
 func buildDNSConfig(input SingBoxConfigInput, dnsServers, probeSuffixes []string) map[string]any {
 	if input.DNSShape != DNSShapeDoHFailover {
-		return map[string]any{
+		dns := map[string]any{
 			"servers": dnsServerObjects(dnsServers),
 			"final":   "dns-0",
 		}
+		if input.DNSStrategy != "" {
+			dns["strategy"] = input.DNSStrategy
+		}
+		return dns
 	}
 
 	var bypassCountries []string
@@ -436,12 +473,16 @@ func buildDNSConfig(input SingBoxConfigInput, dnsServers, probeSuffixes []string
 	// through to the next resolver's terminal route rule.
 	rules = append(rules, dnsFailoverRules(dnsServers, nil, false)...)
 
-	return map[string]any{
+	dns := map[string]any{
 		"servers": servers,
 		"rules":   rules,
 		"final":   fmt.Sprintf("dns-%d", len(dnsServers)-1),
 		"timeout": dnsFallbackTimeout,
 	}
+	if input.DNSStrategy != "" {
+		dns["strategy"] = input.DNSStrategy
+	}
+	return dns
 }
 
 // dnsFailoverRules emits an ordered primary-to-fallback resolver chain from

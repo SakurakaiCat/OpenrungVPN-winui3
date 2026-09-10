@@ -249,6 +249,21 @@ namespace Services
         return ep;
     }
 
+    DnsConfig ParseDnsConfig(JsonObject const& json)
+    {
+        DnsConfig config;
+        config.ipv6 = true;
+        if (auto v = json.TryLookup(L"ipv6"); v && v.ValueType() == JsonValueType::Boolean)
+            config.ipv6 = v.GetBoolean();
+        if (auto arr = json.TryLookup(L"servers"); arr && arr.ValueType() == JsonValueType::Array)
+        {
+            for (auto const& item : arr.GetArray())
+                if (item.ValueType() == JsonValueType::String)
+                    config.servers.push_back(std::wstring{ item.GetString() });
+        }
+        return config;
+    }
+
     void ParseErrorEnvelope(std::wstring const& body, std::wstring& errorOut, std::wstring& codeOut)
     {
         errorOut.clear();

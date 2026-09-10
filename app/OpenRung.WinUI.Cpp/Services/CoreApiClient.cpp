@@ -262,6 +262,25 @@ namespace Services
         Post(L"/api/heartbeat", {}, 15000);
     }
 
+    DnsConfig CoreApiClient::GetDns()
+    {
+        JsonObject obj;
+        if (!JsonObject::TryParse(GetJson(L"/api/dns"), obj))
+            throw CoreApiException(200, {}, L"invalid JSON from /api/dns");
+        return ParseDnsConfig(obj);
+    }
+
+    void CoreApiClient::SetDns(std::vector<std::wstring> const& servers, bool ipv6)
+    {
+        JsonArray array;
+        for (auto const& server : servers)
+            array.Append(JsonValue::CreateStringValue(server));
+        JsonObject obj;
+        obj.SetNamedValue(L"servers", array);
+        obj.SetNamedValue(L"ipv6", JsonValue::CreateBooleanValue(ipv6));
+        Post(L"/api/dns", WideToUtf8(obj.Stringify()), DefaultTimeoutMs);
+    }
+
     void CoreApiClient::Shutdown()
     {
         Post(L"/api/shutdown", {}, 3000);

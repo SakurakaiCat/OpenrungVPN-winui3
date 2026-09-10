@@ -102,6 +102,14 @@ namespace Services
         int pid = 0;
     };
 
+    // Tunnel DNS configuration (GET/POST /api/dns). Empty servers = the
+    // core's defaults (1.1.1.1/8.8.8.8).
+    struct DnsConfig
+    {
+        std::vector<std::wstring> servers;
+        bool ipv6 = true;
+    };
+
     // --- JSON (Windows.Data.Json) --------------------------------------------
     StateSnapshot ParseState(winrt::Windows::Data::Json::JsonObject const& json);
     VersionInfo ParseVersion(winrt::Windows::Data::Json::JsonObject const& json);
@@ -109,6 +117,7 @@ namespace Services
         std::wstring& serverTimeOut);
     std::vector<LogLine> ParseLogs(winrt::Windows::Data::Json::JsonObject const& json);
     CoreEndpoint ParseEndpoint(winrt::Windows::Data::Json::JsonObject const& json);
+    DnsConfig ParseDnsConfig(winrt::Windows::Data::Json::JsonObject const& json);
 
     // Error envelope {"error": "...", "code": "..."}; either may be absent.
     void ParseErrorEnvelope(std::wstring const& body, std::wstring& errorOut, std::wstring& codeOut);
