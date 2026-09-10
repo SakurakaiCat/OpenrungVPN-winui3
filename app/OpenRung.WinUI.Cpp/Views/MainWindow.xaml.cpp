@@ -10,6 +10,8 @@
 #include "../Services/AppLog.h"
 #include "../Services/StartupLog.h"
 #include "../Services/CoreSupervisor.h"
+#include "../Services/Localization.h"
+#include "../Services/RelayDirectory.h"
 #include "StateUi.h"
 #include "HomePage.xaml.h"
 #include "ServersPage.xaml.h"
@@ -18,6 +20,7 @@
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
+using namespace Services;
 
 namespace
 {
@@ -94,12 +97,26 @@ namespace winrt::OpenRung::WinUI::implementation
         m_tray.RightClick = [this] {
             // Blocks in TrackPopupMenu on the tray's message window (the UI
             // thread here); the choice is dispatched like the C# version.
-            auto choice = Services::ShowTrayMenu(WindowHandle(*this), L"打开窗口", L"退出");
+            auto choice = Services::ShowTrayMenu(WindowHandle(*this),
+                I18n::Tr(L"tray.open"), I18n::Tr(L"tray.quit"));
             if (choice == 1)
                 ShowFromTray();
             else if (choice == 2)
                 QuitAsync();
         };
+
+        // Language switch: refresh the shell strings, re-title the cached
+        // relay list, and re-navigate the frame so the active page rebuilds
+        // with the new language.
+        I18n::LanguageChanged = [this] {
+            Services::Ui::Post([this] {
+                if (!StateUi::Lifetime::Live(m_lifetime.Weak()))
+                    return;
+                Services::RelayDirectory::Retitle();
+                ApplyLanguage();
+            });
+        };
+        ApplyLanguage(false);
     }
 
     void MainWindow::ShowFromTray()
@@ -185,19 +202,51 @@ namespace winrt::OpenRung::WinUI::implementation
     void MainWindow::NavView_SelectionChanged(Controls::NavigationView const&,
         Controls::NavigationViewSelectionChangedEventArgs const& args)
     {
-        if (args.IsSettingsSelected())
-        {
-            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::SettingsPage>());
-            return;
-        }
         auto item = args.SelectedItem().try_as<Controls::NavigationViewItem>();
         if (!item)
             return;
         auto tag = winrt::unbox_value_or<hstring>(item.Tag(), L"home");
+        m_currentPage = tag == L"servers" ? L"servers"
+            : tag == L"logs" ? L"logs"
+            : tag == L"settings" ? L"settings"
+            : L"home";
         if (tag == L"servers")
             ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::ServersPage>());
         else if (tag == L"logs")
             ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::LogsPage>());
+        else if (tag == L"settings")
+            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::SettingsPage>());
+        else
+            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::HomePage>());
+    }
+
+    void MainWindow::ApplyLanguage(bool navigate)
+    {
+        // Navigation labels live in XAML; set them from the string table so a
+        // language switch can refresh them without recreating the window.
+        auto const& items = NavView().MenuItems();
+        if (items.Size() >= 4)
+        {
+            auto home = items.GetAt(0).as<Controls::NavigationViewItem>();
+            auto servers = items.GetAt(1).as<Controls::NavigationViewItem>();
+            auto logs = items.GetAt(2).as<Controls::NavigationViewItem>();
+            auto settings = items.GetAt(3).as<Controls::NavigationViewItem>();
+            home.Content(box_value(winrt::hstring(I18n::Tr(L"nav.home"))));
+            servers.Content(box_value(winrt::hstring(I18n::Tr(L"nav.servers"))));
+            logs.Content(box_value(winrt::hstring(I18n::Tr(L"nav.logs"))));
+            settings.Content(box_value(winrt::hstring(I18n::Tr(L"nav.settings"))));
+        }
+
+        if (!navigate)
+            return;
+
+        // Rebuild the current page so its strings re-apply from the table.
+        if (m_currentPage == L"servers")
+            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::ServersPage>());
+        else if (m_currentPage == L"logs")
+            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::LogsPage>());
+        else if (m_currentPage == L"settings")
+            ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::SettingsPage>());
         else
             ContentFrame().Navigate(winrt::xaml_typename<winrt::OpenRung::WinUI::HomePage>());
     }

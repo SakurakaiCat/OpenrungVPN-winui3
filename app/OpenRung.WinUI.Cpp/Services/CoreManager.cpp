@@ -544,6 +544,12 @@ namespace Services
         AppLog::Write(L"core stopped");
     }
 
+    void CoreManager::Restart()
+    {
+        Stop();
+        EnsureRunning(false);
+    }
+
     void CoreManager::RestartElevated()
     {
         Stop();

@@ -25,6 +25,7 @@ namespace winrt::OpenRung::WinUI::implementation
 
     private:
         void LoadRelays();
+        void ApplyStrings();
         void OnStoreChanged();
         void RenderState();
         void OfferElevatedRestart(std::wstring const& why);

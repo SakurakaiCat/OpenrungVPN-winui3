@@ -88,6 +88,7 @@
                         Height="16"
                         IsActive="True" />
                     <TextBlock
+                        x:Name="BootingText"
                         VerticalAlignment="Center"
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Text="正在启动核心…" />
@@ -125,12 +126,14 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock
+                            x:Name="NodeHeader"
                             VerticalAlignment="Center"
                             FontSize="16"
                             FontWeight="SemiBold"
                             Text="节点" />
                         <Button
                             Grid.Column="1"
+                            x:Name="AutoSelectButton"
                             Padding="8"
                             Click="AutoSelect_Click"
                             ToolTipService.ToolTip="自动选择延迟最低的节点">
@@ -138,6 +141,7 @@
                         </Button>
                         <Button
                             Grid.Column="2"
+                            x:Name="RefreshCardButton"
                             Padding="8"
                             Click="Refresh_Click"
                             ToolTipService.ToolTip="从远端更新节点列表并测速">

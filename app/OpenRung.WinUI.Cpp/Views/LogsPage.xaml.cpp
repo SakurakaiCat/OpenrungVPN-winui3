@@ -6,6 +6,7 @@
 
 #include "../Services/AppLog.h"
 #include "../Services/CoreSupervisor.h"
+#include "../Services/Localization.h"
 #include "StateUi.h"
 
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
@@ -30,11 +31,20 @@ namespace winrt::OpenRung::WinUI::implementation
             });
         AutoScrollToggle().IsChecked(store.AutoScroll());
 
+        ApplyStrings();
+
         // Seed: the stream replays backlog before live lines; this page may be
         // opened later, so pull a tail snapshot on first load.
         Loaded([this](Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
             SeedLogs();
         });
+    }
+
+    void LogsPage::ApplyStrings()
+    {
+        ClearText().Text(I18n::Tr(L"logs.clear"));
+        CopyText().Text(I18n::Tr(L"logs.copy"));
+        AutoScrollToggle().Content(box_value(winrt::hstring(I18n::Tr(L"logs.autoScroll"))));
     }
 
     LogsPage::~LogsPage()

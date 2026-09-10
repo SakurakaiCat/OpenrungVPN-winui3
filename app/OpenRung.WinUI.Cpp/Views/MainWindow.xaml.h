@@ -24,6 +24,9 @@ namespace winrt::OpenRung::WinUI::implementation
         void HideToTray();
         void UpdateStatusBar();
         void QuitAsync();
+        /// Applies shell strings from the language table and re-navigates the
+        /// frame (pass navigate=false before the initial navigation).
+        void ApplyLanguage(bool navigate = true);
 
         void OnWindowClosing(winrt::Microsoft::UI::Windowing::AppWindow const& sender,
             winrt::Microsoft::UI::Windowing::AppWindowClosingEventArgs const& args);
@@ -32,6 +35,7 @@ namespace winrt::OpenRung::WinUI::implementation
 
         Services::TrayIcon m_tray;
         bool m_quitting = false;
+        std::wstring m_currentPage = L"home";
         StateUi::Lifetime m_lifetime;
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_ticker{ nullptr };
         winrt::event_token m_closingToken{};

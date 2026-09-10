@@ -130,6 +130,7 @@
     <ClInclude Include="Services\CoreManager.h" />
     <ClInclude Include="Services\CoreSupervisor.h" />
     <ClInclude Include="Services\Http.h" />
+    <ClInclude Include="Services\Localization.h" />
     <ClInclude Include="Services\InterceptionDiagnostics.h" />
     <ClInclude Include="Services\RelayDirectory.h" />
     <ClInclude Include="Services\TrayIcon.h" />
@@ -181,6 +182,7 @@
     <ClCompile Include="Services\CoreSupervisor.cpp" />
     <ClCompile Include="Services\Http.cpp" />
     <ClCompile Include="Services\InterceptionDiagnostics.cpp" />
+    <ClCompile Include="Services\Localization.cpp" />
     <ClCompile Include="Services\RelayDirectory.cpp" />
     <ClCompile Include="Services\TrayIcon.cpp" />
     <ClCompile Include="Services\UpdateCheck.cpp" />

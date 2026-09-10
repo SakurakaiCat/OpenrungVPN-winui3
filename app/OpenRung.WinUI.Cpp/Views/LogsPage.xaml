@@ -14,16 +14,16 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
-            <Button Click="Clear_Click">
+            <Button x:Name="ClearButton" Click="Clear_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE74D;" FontSize="12" />
-                    <TextBlock Text="清空" />
+                    <TextBlock x:Name="ClearText" Text="清空" />
                 </StackPanel>
             </Button>
-            <Button Click="Copy_Click">
+            <Button x:Name="CopyButton" Click="Copy_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                    <TextBlock Text="复制" />
+                    <TextBlock x:Name="CopyText" Text="复制" />
                 </StackPanel>
             </Button>
             <ToggleButton

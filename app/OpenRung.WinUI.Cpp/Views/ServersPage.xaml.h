@@ -27,6 +27,7 @@ namespace winrt::OpenRung::WinUI::implementation
 
     private:
         void Reload();
+        void ApplyStrings();
         void OnStoreChanged();
 
         int m_storeKey = 0;

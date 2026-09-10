@@ -10,6 +10,7 @@
 #include "../Services/AppState.h"
 #include "../Services/CoreApiClient.h"
 #include "../Services/CoreSupervisor.h"
+#include "../Services/Localization.h"
 #include "../Services/RelayDirectory.h"
 #include "StateUi.h"
 #include "../Models/RelayRow.h"
@@ -40,6 +41,8 @@ namespace winrt::OpenRung::WinUI::implementation
         });
         Services::StartupLog::Write("HomePage listeners done");
 
+        ApplyStrings();
+
         Services::StartupLog::Write("HomePage OnStoreChanged begin");
         OnStoreChanged();
         Services::StartupLog::Write("HomePage OnStoreChanged done");
@@ -53,6 +56,15 @@ namespace winrt::OpenRung::WinUI::implementation
         m_lifetime.End();
         Services::RelayStore::Instance().RemoveListener(&m_storeKey);
         Services::AppState::Instance().RemoveListener(&m_stateKey);
+    }
+
+    void HomePage::ApplyStrings()
+    {
+        NodeHeader().Text(I18n::Tr(L"home.nodeHeader"));
+        ToolTipService::SetToolTip(AutoSelectButton(), box_value(winrt::hstring(I18n::Tr(L"home.autoSelectTip"))));
+        ToolTipService::SetToolTip(RefreshCardButton(), box_value(winrt::hstring(I18n::Tr(L"home.refreshTip"))));
+        BootingText().Text(I18n::Tr(L"home.booting"));
+        ErrorBar().Title(winrt::hstring(I18n::Tr(L"home.errorTitle")));
     }
 
     void HomePage::OnNavigatedTo(winrt::Microsoft::UI::Xaml::Navigation::NavigationEventArgs const& e)
@@ -160,9 +172,10 @@ namespace winrt::OpenRung::WinUI::implementation
         Services::StartupLog::Write("RenderState 2");
 
         auto label = state.relayLabel.value_or(L"");
-        RelayLabel().Text(label.empty() ? L"未连接" : label);
+        RelayLabel().Text(label.empty() ? I18n::Tr(L"home.notConnected") : label);
 
-        StatusLine().Text(state.status + L" · " + state.mode);
+        StatusLine().Text(state.status + L" · " + I18n::Tr(
+            state.mode == L"tun" ? L"mode.tun" : L"mode.proxy"));
 
         Services::StartupLog::Write("RenderState 3");
         // Core boot hint: the startup thread clears the flag once the first
@@ -249,7 +262,7 @@ namespace winrt::OpenRung::WinUI::implementation
                         return;
                     m_pendingSince.reset();
                     RenderState();
-                    ShowError(L"无法连接核心进程，请稍后重试。");
+                    ShowError(I18n::Tr(L"dlg.connectFailed"));
                 });
             }
         }).detach();
@@ -266,10 +279,10 @@ namespace winrt::OpenRung::WinUI::implementation
     void HomePage::OfferElevatedRestart(std::wstring const& why)
     {
         ContentDialog dialog;
-        dialog.Title(box_value(L"需要管理员权限"));
-        dialog.Content(box_value(L"TUN 模式需要以管理员身份运行核心进程。\n\n" + why));
-        dialog.PrimaryButtonText(L"以管理员身份重启核心");
-        dialog.CloseButtonText(L"取消");
+        dialog.Title(box_value(winrt::hstring(I18n::Tr(L"dlg.elevTitle"))));
+        dialog.Content(box_value(winrt::hstring(I18n::Tr(L"dlg.elevBody", why))));
+        dialog.PrimaryButtonText(winrt::hstring(I18n::Tr(L"dlg.elevRestartCore")));
+        dialog.CloseButtonText(winrt::hstring(I18n::Tr(L"dlg.cancel")));
         dialog.DefaultButton(ContentDialogButton::Primary);
         dialog.XamlRoot(XamlRoot());
 

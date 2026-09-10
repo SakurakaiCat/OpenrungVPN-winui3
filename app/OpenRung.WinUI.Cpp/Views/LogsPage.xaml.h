@@ -21,6 +21,7 @@ namespace winrt::OpenRung::WinUI::implementation
     private:
         void ScrollToBottom();
         void SeedLogs();
+        void ApplyStrings();
 
         winrt::event_token m_vectorToken{};
         StateUi::Lifetime m_lifetime;

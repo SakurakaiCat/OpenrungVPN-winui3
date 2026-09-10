@@ -11,6 +11,7 @@
 #include "Services\AppSettings.h"
 #include "Services\AppState.h"
 #include "Services\CoreSupervisor.h"
+#include "Services\Localization.h"
 #include "Services\RelayDirectory.h"
 #include "Services\StartupLog.h"
 
@@ -37,9 +38,11 @@ namespace winrt::OpenRung::WinUI::implementation
     void App::OnLaunched(LaunchActivatedEventArgs const&)
     {
         StartupLog::Write("OnLaunched enter");
+        I18n::Init();
         try
         {
             m_window = make<MainWindow>();
+            s_window = m_window;
             StartupLog::Write("OnLaunched window created");
         }
         catch (winrt::hresult_error const& ex)
@@ -65,13 +68,32 @@ namespace winrt::OpenRung::WinUI::implementation
         // Fire-and-forget: a core startup failure is surfaced on the logs page,
         // never as an unhandled exception that would kill the app.
         RelayDirectory::StartAutoRefresh();
-        AppLog::Write(L"启动核心…");
+        AppLog::Write(I18n::Tr(L"log.startingCore"));
         std::thread([] {
             try
             {
                 CoreSupervisor::Instance().Start();
                 AppLog::Write(L"core ready; event stream starting");
                 Services::AppState::Instance().SetCoreBooting(false);
+
+                // Keep the core on the preferred capture mode (TUN by default).
+                // TUN needs an elevated core: surface the prompt now instead of
+                // failing later on connect (428).
+                try
+                {
+                    auto sync = CoreSupervisor::Instance().SyncPreferredMode();
+                    if (sync.elevationRequired)
+                        Services::Ui::Post([why = sync.detail] {
+                            App::PromptTunElevation(why);
+                        });
+                    else if (!sync.applied)
+                        AppLog::Write(L"mode sync failed: " + sync.detail);
+                }
+                catch (std::exception const& ex)
+                {
+                    AppLog::Write(L"mode sync failed: " + Utf8ToWide(ex.what()));
+                }
+
                 if (AppSettings::Load().autoClearProxy)
                 {
                     try
@@ -98,6 +120,54 @@ namespace winrt::OpenRung::WinUI::implementation
     {
         AppLog::Write(L"app exiting; stopping core");
         CoreSupervisor::Instance().Stop();
+    }
+
+    Window App::Window()
+    {
+        return s_window;
+    }
+
+    void App::PromptTunElevation(std::wstring const& why)
+    {
+        auto window = s_window;
+        if (!window || !window.Content())
+            return; // tearing down; the connect path will re-prompt
+
+        Controls::ContentDialog dialog;
+        dialog.Title(box_value(winrt::hstring(I18n::Tr(L"dlg.elevTitle"))));
+        dialog.Content(box_value(winrt::hstring(
+            I18n::Tr(L"dlg.elevBody", why))));
+        dialog.PrimaryButtonText(winrt::hstring(I18n::Tr(L"dlg.grantAndRestart")));
+        dialog.CloseButtonText(winrt::hstring(I18n::Tr(L"dlg.cancel")));
+        dialog.DefaultButton(Controls::ContentDialogButton::Primary);
+        try
+        {
+            dialog.XamlRoot(window.Content().XamlRoot());
+        }
+        catch (...)
+        {
+            return;
+        }
+
+        dialog.ShowAsync().Completed(
+            [](Windows::Foundation::IAsyncOperation<Controls::ContentDialogResult> const& async,
+                Windows::Foundation::AsyncStatus status) {
+                if (status != Windows::Foundation::AsyncStatus::Completed)
+                    return;
+                if (async.get() != Controls::ContentDialogResult::Primary)
+                    return;
+                std::thread([] {
+                    try
+                    {
+                        CoreSupervisor::Instance().ApplyPreferredModeElevated();
+                    }
+                    catch (std::exception const& ex)
+                    {
+                        // user declined UAC or restart failed; stay unelevated
+                        AppLog::Write(L"elevated restart failed: " + Utf8ToWide(ex.what()));
+                    }
+                }).detach();
+            });
     }
 }
 

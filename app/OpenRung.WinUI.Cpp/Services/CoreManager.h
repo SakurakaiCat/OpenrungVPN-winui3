@@ -49,6 +49,11 @@ namespace Services
         /// Politely ask the core to exit (contract /api/shutdown), then wait.
         void Stop();
 
+        /// Stop (when running) then start a fresh core; blocking. The new
+        /// instance re-reads the endpoint file and may adopt an unrelated
+        /// live core instead of spawning.
+        void Restart();
+
         /// Restart the core running elevated (for TUN mode).
         void RestartElevated();
 

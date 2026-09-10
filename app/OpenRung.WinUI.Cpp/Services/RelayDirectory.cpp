@@ -4,6 +4,7 @@
 #include "CoreSupervisor.h"
 #include "AppLog.h"
 #include "AppState.h"
+#include "Localization.h"
 #include "../Models/NameTables.h"
 
 #include <cwctype>
@@ -174,50 +175,101 @@ namespace Services
 
     namespace
     {
+        std::wstring TitleCase(std::wstring city)
+        {
+            // Broker cities are English ("Los Angeles", "helsinki"); normalize
+            // to Title Case for display.
+            bool wordStart = true;
+            for (auto& ch : city)
+            {
+                if (wordStart && ch >= L'a' && ch <= L'z')
+                    ch = ch - L'a' + L'A';
+                wordStart = (ch == L' ' || ch == L'-');
+            }
+            return city;
+        }
+
         std::wstring CityLocalize(std::wstring const& city)
         {
-            // City names arrive in zh already from the broker; the static table
-            // covers the few English leftovers. Keys are lowercase.
+            // The broker sends latin city names; the static tables map them
+            // to zh (and back) for the two languages.
             if (city.empty()) return {};
             auto lower = city;
             std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+            if (I18n::Language() == L"en")
+            {
+                if (auto* en = NameTables::LookupCityEnFromZh(city))
+                    return en; // broker variant that is already zh
+                return TitleCase(city);
+            }
             if (auto* zh = NameTables::LookupCityLower(lower))
                 return zh;
             return city;
         }
-    }
 
-    std::wstring RelayDirectory::CountryName(RelayInfo const& relay)
-    {
-        if (relay.countryCode.size() == 2)
+        std::wstring CountryLocalize(RelayInfo const& relay)
         {
-            auto upper = relay.countryCode;
-            std::transform(upper.begin(), upper.end(), upper.begin(), ::towupper);
-            if (auto* zh = NameTables::LookupCountry(upper))
-                return zh;
+            if (relay.countryCode.size() == 2)
+            {
+                auto upper = relay.countryCode;
+                std::transform(upper.begin(), upper.end(), upper.begin(), ::towupper);
+                if (I18n::Language() == L"en")
+                {
+                    if (auto* en = NameTables::LookupCountryEn(upper))
+                        return en;
+                }
+                else if (auto* zh = NameTables::LookupCountry(upper))
+                    return zh;
+            }
+            if (I18n::Language() == L"en")
+                if (auto* en = NameTables::LookupCountryEnFromZh(relay.country))
+                    return en;
+            return relay.country.empty() ? I18n::Tr(L"relay.unnamed") : relay.country;
         }
-        return relay.country.empty() ? L"节点" : relay.country;
-    }
 
-    namespace
-    {
-        void AssignDisplayTitles(std::vector<RelayInfo>& relays)
+        /// Rebuilds display labels ("国家城市N" / "Country City N") in the
+        /// active language. Called on every load and on language changes.
+        void BuildLabels(std::vector<RelayInfo>& relays)
         {
+            bool english = I18n::Language() == L"en";
             std::unordered_map<std::wstring, int> counters;
             for (auto& relay : relays)
             {
-                auto country = RelayDirectory::CountryName(relay);
+                auto country = CountryLocalize(relay);
                 auto city = CityLocalize(relay.city);
                 // "新加坡新加坡1" reads duplicated; skip a city matching its country.
                 if (city == country)
                     city.clear();
                 auto key = relay.countryCode + L"|" + relay.city;
                 int n = ++counters[key];
-                relay.label = city.empty()
-                    ? country + std::to_wstring(n)
-                    : country + city + std::to_wstring(n);
+                // zh glues the parts (日本东京1); en separates them.
+                relay.label = english
+                    ? (city.empty() ? country : country + L" " + city) + L" " + std::to_wstring(n)
+                    : (city.empty() ? country : country + city) + std::to_wstring(n);
             }
         }
+    }
+
+    std::wstring RelayDirectory::CountryName(RelayInfo const& relay)
+    {
+        return CountryLocalize(relay);
+    }
+
+    void RelayDirectory::Retitle()
+    {
+        // Re-applies the display labels of the cached relay list in the
+        // active language (no network round-trip).
+        auto& store = RelayStore::Instance();
+        auto relays = store.Relays();
+        if (relays.empty())
+            return;
+        BuildLabels(relays);
+        auto total = relays.size();
+        long ranked = 0;
+        for (auto const& r : relays)
+            if (r.latencyMs) ++ranked;
+        store.SetRelays(std::move(relays), I18n::Tr(L"relay.summary",
+            std::to_wstring(total), std::to_wstring(ranked)));
     }
 
     void RelayDirectory::Load()
@@ -225,12 +277,13 @@ namespace Services
         auto& api = CoreSupervisor::Instance().Core().EnsureRunning(false);
         std::vector<RelayInfo> relays;
         auto serverTime = api.GetRelays(relays);
-        AssignDisplayTitles(relays);
+        BuildLabels(relays);
 
         long ranked = 0;
         for (auto const& r : relays)
             if (r.latencyMs) ++ranked;
-        auto summary = std::to_wstring(relays.size()) + L" 个节点，已测速 " + std::to_wstring(ranked) + L" 个";
+        auto summary = I18n::Tr(L"relay.summary",
+            std::to_wstring(relays.size()), std::to_wstring(ranked));
 
         auto& store = RelayStore::Instance();
         store.SetRelays(std::move(relays), summary);
@@ -252,13 +305,13 @@ namespace Services
             try
             {
                 Load();
-                AppLog::Write(L"从远端更新节点完成：" +
-                    std::to_wstring(store.Relays().size()) + L" 个节点");
+                AppLog::Write(I18n::Tr(L"log.relayUpdateDone",
+                    std::to_wstring(store.Relays().size())));
             }
             catch (std::exception const& ex)
             {
                 store.SetError(Services::Utf8ToWide(ex.what()));
-                AppLog::Write(L"从远端更新节点失败：" + Utf8ToWide(ex.what()));
+                AppLog::Write(I18n::Tr(L"log.relayUpdateFailed") + L" " + Utf8ToWide(ex.what()));
             }
             store.SetLoading(false);
         }).detach();

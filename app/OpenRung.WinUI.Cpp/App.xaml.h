@@ -16,8 +16,16 @@ namespace winrt::OpenRung::WinUI::implementation
 
         static void ShutdownAsync();
 
+        /// The main window (may be null very early / during teardown).
+        static winrt::Microsoft::UI::Xaml::Window Window();
+
+        /// Startup prompt: TUN (the default mode) needs an elevated core.
+        /// Offers the UAC restart; refusal just logs and stays in proxy mode.
+        static void PromptTunElevation(std::wstring const& why);
+
     private:
         winrt::Microsoft::UI::Xaml::Window m_window{ nullptr };
+        static inline winrt::Microsoft::UI::Xaml::Window s_window{ nullptr };
     };
 }
 

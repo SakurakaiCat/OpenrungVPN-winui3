@@ -10,6 +10,7 @@
 #include "../Services/AppState.h"
 #include "../Services/CoreApiClient.h"
 #include "../Services/CoreSupervisor.h"
+#include "../Services/Localization.h"
 #include "../Services/UpdateCheck.h"
 #include "StateUi.h"
 
@@ -28,6 +29,12 @@ namespace winrt::OpenRung::WinUI::implementation
         m_loadedToken = Loaded([this](Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
             OnLoaded();
         });
+        ApplyStrings();
+        // Reflect the persisted language choice without firing the handler.
+        m_suppressLanguage = true;
+        auto lang = Services::AppSettings::Load().language;
+        LanguageCombo().SelectedIndex(lang == L"zh" ? 1 : lang == L"en" ? 2 : 0);
+        m_suppressLanguage = false;
         RenderSystemProxy();
     }
 
@@ -40,7 +47,8 @@ namespace winrt::OpenRung::WinUI::implementation
 
     void SettingsPage::OnLoaded()
     {
-        AppVersionText().Text(L"当前版本：" + std::wstring(Services::AppVersion));
+        AppVersionText().Text(I18n::Tr(L"settings.curVer", Services::AppVersion));
+        RenderCoreManagerStatus();
 
         // Reflect the persisted engine mode without firing the handler.
         SetComboIndex(Services::AppState::Instance().Current().mode == L"tun" ? 1 : 0);
@@ -53,6 +61,7 @@ namespace winrt::OpenRung::WinUI::implementation
         Services::AppState::Instance().AddListener(&m_stateKey, [this, weak = m_lifetime.Weak()] {
             if (!StateUi::Lifetime::Live(weak)) return;
             RenderSystemProxy();
+            RenderCoreManagerStatus();
         });
 
         auto weak = m_lifetime.Weak();
@@ -75,8 +84,8 @@ namespace winrt::OpenRung::WinUI::implementation
                     Services::Ui::Post([this, weak, port = *port, pid = *pid] {
                         if (!StateUi::Lifetime::Live(weak))
                             return;
-                        EndpointText().Text(L"127.0.0.1:" + std::to_wstring(port)
-                            + L"（PID " + std::to_wstring(pid) + L"）");
+                        EndpointText().Text(I18n::Tr(L"settings.endpointFmt",
+                            L"127.0.0.1:" + std::to_wstring(port), std::to_wstring(pid)));
                     });
                 }
             }
@@ -90,9 +99,8 @@ namespace winrt::OpenRung::WinUI::implementation
     void SettingsPage::RenderSystemProxy()
     {
         auto proxy = Services::AppState::Instance().Current().systemProxy;
-        SystemProxyText().Text(
-            L"当前系统代理：" + StateUi::ProxyDisplay(proxy)
-            + L"。代理模式下内核会先接管已有代理、断开时恢复；开启自动清除后，启动时直接移除已有代理（例如其他代理工具留下的）。");
+        SystemProxyText().Text(I18n::Tr(L"settings.systemProxyText",
+            StateUi::ProxyDisplay(proxy)));
     }
 
     void SettingsPage::PersistAutoClear(bool value)
@@ -156,8 +164,9 @@ namespace winrt::OpenRung::WinUI::implementation
         if (m_updateBusy)
             return;
         m_updateBusy = true;
+        m_lastUpdateStatus = UpdateStatus::Checking;
         CheckUpdateButton().IsEnabled(false);
-        UpdateStatusText().Text(L"正在检查更新…");
+        UpdateStatusText().Text(I18n::Tr(L"status.checking"));
 
         auto weak = m_lifetime.Weak();
         std::thread([this, weak] {
@@ -180,20 +189,24 @@ namespace winrt::OpenRung::WinUI::implementation
 
                 if (!failure.empty())
                 {
-                    UpdateStatusText().Text(L"检查失败");
-                    ShowDialog(L"检查更新失败", failure, {}, L"关闭");
+                    m_lastUpdateStatus = UpdateStatus::Failed;
+                    UpdateStatusText().Text(I18n::Tr(L"status.checkFailed"));
+                    ShowDialog(I18n::Tr(L"dlg.updateCheckFailTitle"), failure, {}, I18n::Tr(L"dlg.close"));
                     return;
                 }
                 if (!update)
                 {
-                    UpdateStatusText().Text(L"已是最新版本");
-                    ShowDialog(L"检查更新",
-                        std::wstring(L"当前已是最新版本（") + Services::AppVersion + L"）。",
-                        {}, L"好");
+                    m_lastUpdateStatus = UpdateStatus::UpToDate;
+                    UpdateStatusText().Text(I18n::Tr(L"dlg.upToDateStatus"));
+                    ShowDialog(I18n::Tr(L"dlg.updateTitle"),
+                        I18n::Tr(L"dlg.upToDateBody", Services::AppVersion),
+                        {}, I18n::Tr(L"dlg.ok"));
                     return;
                 }
 
-                UpdateStatusText().Text(L"发现新版本 " + update->tag);
+                m_lastUpdateStatus = UpdateStatus::Found;
+                m_lastUpdateTag = I18n::Tr(L"dlg.updateFound", update->tag);
+                UpdateStatusText().Text(m_lastUpdateTag);
                 ShowUpdateDialog(*update);
             });
         }).detach();
@@ -202,11 +215,11 @@ namespace winrt::OpenRung::WinUI::implementation
     void SettingsPage::ShowUpdateDialog(Services::UpdateInfo const& update)
     {
         ContentDialog dialog;
-        dialog.Title(box_value(L"发现新版本 " + winrt::hstring(update.tag)));
-        dialog.Content(box_value(std::wstring(L"当前版本 ") + Services::AppVersion
-            + L"，最新版本 " + update.tag + L"。\n\n请前往 GitHub Releases 页面下载新的压缩包并解压替换。"));
-        dialog.PrimaryButtonText(L"前往下载");
-        dialog.CloseButtonText(L"关闭");
+        dialog.Title(box_value(winrt::hstring(I18n::Tr(L"dlg.updateFound", update.tag))));
+        dialog.Content(box_value(winrt::hstring(I18n::Tr(L"dlg.updateBody",
+            Services::AppVersion, update.tag))));
+        dialog.PrimaryButtonText(winrt::hstring(I18n::Tr(L"dlg.updateGo")));
+        dialog.CloseButtonText(winrt::hstring(I18n::Tr(L"dlg.close")));
         dialog.DefaultButton(ContentDialogButton::Primary);
         dialog.XamlRoot(XamlRoot());
 
@@ -268,7 +281,7 @@ namespace winrt::OpenRung::WinUI::implementation
                         return;
                     SetComboIndex(ComboModeIsTun() ? 1 : 0);
                     // Most likely 409 "connected": disconnect first on Home.
-                    ShowDialog(L"无法切换模式", msg, {}, L"关闭");
+                    ShowDialog(I18n::Tr(L"dlg.modeFailTitle"), msg, {}, I18n::Tr(L"dlg.close"));
                 });
             }
             catch (std::exception const&)
@@ -286,10 +299,10 @@ namespace winrt::OpenRung::WinUI::implementation
     void SettingsPage::OfferElevation(std::wstring const& why)
     {
         ContentDialog dialog;
-        dialog.Title(box_value(L"需要管理员权限"));
-        dialog.Content(box_value(why + L"\n\n是否重启内核为管理员模式并启用 TUN？"));
-        dialog.PrimaryButtonText(L"重启核心");
-        dialog.CloseButtonText(L"取消");
+        dialog.Title(box_value(winrt::hstring(I18n::Tr(L"dlg.elevTitle"))));
+        dialog.Content(box_value(I18n::Tr(L"dlg.elevTunBody", why)));
+        dialog.PrimaryButtonText(winrt::hstring(I18n::Tr(L"dlg.restartCore")));
+        dialog.CloseButtonText(winrt::hstring(I18n::Tr(L"dlg.cancel")));
         dialog.DefaultButton(ContentDialogButton::Primary);
         dialog.XamlRoot(XamlRoot());
 
@@ -326,10 +339,169 @@ namespace winrt::OpenRung::WinUI::implementation
                     // user declined UAC or restart failed; restore old mode
                     Services::AppLog::Write(L"elevated restart failed: " + failure);
                     SetComboIndex(ComboModeIsTun() ? 1 : 0);
-                    ShowDialog(L"重启失败", failure, {}, L"关闭");
+                    ShowDialog(I18n::Tr(L"dlg.restartFailTitle"), failure, {}, I18n::Tr(L"dlg.close"));
                 });
             }).detach();
         });
+    }
+
+    void SettingsPage::ApplyStrings()
+    {
+        TitleText().Text(I18n::Tr(L"settings.title"));
+        CaptureModeHeader().Text(I18n::Tr(L"settings.captureMode"));
+        CaptureModeDesc().Text(I18n::Tr(L"settings.captureModeDesc"));
+        SystemProxyHeader().Text(I18n::Tr(L"settings.systemProxy"));
+        AutoClearCheck().Content(box_value(winrt::hstring(I18n::Tr(L"settings.autoClear"))));
+        ClearProxyButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.clearNow"))));
+        LanguageHeader().Text(I18n::Tr(L"settings.language"));
+        CoreHeader().Text(I18n::Tr(L"settings.core"));
+        CoreStartButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.coreStart"))));
+        CoreStopButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.coreStop"))));
+        CoreRestartButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.coreRestart"))));
+        CoreManagerHint().Text(I18n::Tr(L"settings.coreManagerHint"));
+        AboutHeader().Text(I18n::Tr(L"settings.about"));
+        AboutMaintainerText().Text(I18n::Tr(L"settings.aboutMaintainer"));
+        AboutDevText().Text(I18n::Tr(L"settings.aboutDev"));
+        CopyrightText().Text(I18n::Tr(L"settings.copyright"));
+        CheckUpdateButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.checkUpdates"))));
+
+        // Combo item labels (tags stay stable).
+        auto modeItems = ModeCombo().Items();
+        modeItems.GetAt(0).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.modeProxy"))));
+        modeItems.GetAt(1).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.modeTun"))));
+        auto langItems = LanguageCombo().Items();
+        langItems.GetAt(0).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.langSystem"))));
+        langItems.GetAt(1).as<ComboBoxItem>().Content(box_value(winrt::hstring(L"简体中文")));
+        langItems.GetAt(2).as<ComboBoxItem>().Content(box_value(winrt::hstring(L"English")));
+
+        RenderSystemProxy();
+        RenderCoreManagerStatus();
+        if (m_lastUpdateStatus == UpdateStatus::None)
+            UpdateStatusText().Text(L"");
+        else if (m_lastUpdateStatus == UpdateStatus::Checking)
+            UpdateStatusText().Text(I18n::Tr(L"status.checking"));
+        else if (m_lastUpdateStatus == UpdateStatus::Failed)
+            UpdateStatusText().Text(I18n::Tr(L"status.checkFailed"));
+        else if (m_lastUpdateStatus == UpdateStatus::UpToDate)
+            UpdateStatusText().Text(I18n::Tr(L"dlg.upToDateStatus"));
+        else if (m_lastUpdateStatus == UpdateStatus::Found)
+            UpdateStatusText().Text(m_lastUpdateTag);
+    }
+
+    void SettingsPage::LanguageCombo_SelectionChanged(Windows::Foundation::IInspectable const&,
+        SelectionChangedEventArgs const&)
+    {
+        if (m_suppressLanguage)
+            return;
+        auto item = LanguageCombo().SelectedItem().try_as<ComboBoxItem>();
+        if (!item)
+            return;
+        auto lang = std::wstring(winrt::unbox_value_or<hstring>(item.Tag(), L"system"));
+
+        // Full runtime switch: SetPreference persists the choice, resolves
+        // the active language, and fires LanguageChanged — the shell then
+        // refreshes nav labels and re-navigates the frame (rebuilding this
+        // page with the new strings). No process restart needed.
+        I18n::SetPreference(lang);
+    }
+
+    void SettingsPage::RenderCoreManagerStatus()
+    {
+        auto info = Services::CoreSupervisor::Instance().Describe();
+        bool running = info.phase == Services::CoreSupervisor::CorePhase::Running;
+        std::wstring text = running
+            ? I18n::Tr(L"settings.coreRunning", std::to_wstring(info.pid))
+            : I18n::Tr(L"settings.coreStopped");
+        if (!info.lastError.empty())
+            text += L" — " + info.lastError;
+        CoreStatusText().Text(text);
+        CoreStartButton().IsEnabled(!running && !m_coreBusy);
+        CoreStopButton().IsEnabled(running && !m_coreBusy);
+        CoreRestartButton().IsEnabled(running && !m_coreBusy);
+    }
+
+    void SettingsPage::CoreStart_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_coreBusy)
+            return;
+        m_coreBusy = true;
+        std::thread([this, weak = m_lifetime.Weak()] {
+            std::wstring failure;
+            try
+            {
+                Services::CoreSupervisor::Instance().Start();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+            Services::Ui::Post([this, weak, failure = std::move(failure)] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_coreBusy = false;
+                if (failure.empty())
+                    Services::AppLog::Write(I18n::Tr(L"log.coreStarted"));
+                else
+                    Services::AppLog::Write(I18n::Tr(L"log.coreStartFailed") + failure);
+                RenderCoreManagerStatus();
+            });
+        }).detach();
+    }
+
+    void SettingsPage::CoreStop_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_coreBusy)
+            return;
+        m_coreBusy = true;
+        std::thread([this, weak = m_lifetime.Weak()] {
+            std::wstring failure;
+            try
+            {
+                Services::CoreSupervisor::Instance().Stop();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+            Services::Ui::Post([this, weak, failure = std::move(failure)] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_coreBusy = false;
+                if (failure.empty())
+                    Services::AppLog::Write(I18n::Tr(L"log.coreStopped"));
+                else
+                    Services::AppLog::Write(I18n::Tr(L"log.coreStopFailed") + failure);
+                RenderCoreManagerStatus();
+            });
+        }).detach();
+    }
+
+    void SettingsPage::CoreRestart_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_coreBusy)
+            return;
+        m_coreBusy = true;
+        std::thread([this, weak = m_lifetime.Weak()] {
+            std::wstring failure;
+            try
+            {
+                Services::CoreSupervisor::Instance().Core().Restart();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+            Services::Ui::Post([this, weak, failure = std::move(failure)] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_coreBusy = false;
+                if (failure.empty())
+                    Services::AppLog::Write(I18n::Tr(L"log.coreRestarted"));
+                else
+                    Services::AppLog::Write(I18n::Tr(L"log.coreRestartFailed") + failure);
+                RenderCoreManagerStatus();
+            });
+        }).detach();
     }
 
     void SettingsPage::ShowDialog(std::wstring const& title, std::wstring const& content,

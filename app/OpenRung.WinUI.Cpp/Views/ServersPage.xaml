@@ -22,7 +22,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Click="Refresh_Click">
+            <Button x:Name="UpdateRemoteButton" Grid.Column="0" Click="Refresh_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE72C;" FontSize="12" />
                     <TextBlock Text="从远端更新节点" />
@@ -39,7 +39,7 @@
                     Style="{StaticResource CaptionTextBlockStyle}"
                     Foreground="{ThemeResource SystemFillColorCautionBrush}" />
             </StackPanel>
-            <Button Grid.Column="2" Click="AutoSelect_Click">
+            <Button x:Name="AutoSelectToolbarButton" Grid.Column="2" Click="AutoSelect_Click">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE945;" FontSize="12" />
                     <TextBlock Text="自动选择最低延迟" />
