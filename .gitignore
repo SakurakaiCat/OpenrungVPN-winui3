@@ -28,3 +28,8 @@ core/core
 build.log
 pre.xml
 .tool_probe
+
+# Windows redirect artifacts
+nul
+CONERR$
+CONOUT$
