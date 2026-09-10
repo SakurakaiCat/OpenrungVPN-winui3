@@ -20,6 +20,11 @@ namespace Services
         /// UI language choice: "system" (default), "zh" or "en".
         std::wstring language = L"system";
 
+        /// When true (default), relays located in mainland China are hidden
+        /// from the node lists. Those relays are volunteer-provided with very
+        /// poor availability; the settings page carries the security warning.
+        bool hideCnRelays = true;
+
         static AppSettings Load();
         void Save() const;
 

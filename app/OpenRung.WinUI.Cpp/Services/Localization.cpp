@@ -83,6 +83,10 @@ namespace Services
             {L"settings.coreRestarting", L"正在重启核心…", L"Restarting core…"},
             {L"settings.coreStartFailed", L"启动失败：{0}", L"Start failed: {0}"},
             {L"settings.language", L"语言", L"Language"},
+            {L"settings.relays", L"节点列表", L"Node list"},
+            {L"settings.hideCn", L"隐藏中国大陆节点", L"Hide mainland China nodes"},
+            {L"settings.hideCnDesc", L"中国大陆节点由志愿者提供，可用性极差，默认不在节点列表中显示。如需使用，请自行评估其安全性与合规风险。",
+             L"Mainland China nodes are volunteer-provided with very poor availability and are hidden from the node lists by default. If you enable them, evaluate their security and compliance yourself."},
             {L"settings.dns", L"DNS", L"DNS"},
             {L"settings.dnsDesc", L"隧道内域名解析使用的 DNS 服务器；修改在下次连接时生效。",
              L"DNS servers used for name resolution inside the tunnel; changes apply on the next connect."},
@@ -169,6 +173,7 @@ namespace Services
             {L"log.coreRestartFailed", L"核心重启失败:", L"Core restart failed: "},
             {L"log.relayUpdateDone", L"从远端更新节点完成:{0} 个节点", L"Remote node update finished: {0} nodes"},
             {L"log.relayUpdateFailed", L"从远端更新节点失败:", L"Remote node update failed: "},
+            {L"log.cnRelaysHidden", L"已隐藏 {0} 个中国大陆节点（设置中可关闭）", L"Hidden {0} mainland China node(s); toggle in Settings"},
 
             // settings status lines
             {L"status.checking", L"正在检查更新…", L"Checking for updates…"},

@@ -4,6 +4,7 @@
 #include "CoreSupervisor.h"
 #include "AppLog.h"
 #include "AppState.h"
+#include "AppSettings.h"
 #include "Localization.h"
 #include "../Models/NameTables.h"
 
@@ -175,6 +176,24 @@ namespace Services
 
     namespace
     {
+        // Mainland China relays are volunteer-provided with very poor
+        // availability; hidden by default per the settings toggle.
+        bool IsMainlandChinaRelay(RelayInfo const& relay)
+        {
+            if (relay.countryCode.size() == 2)
+            {
+                auto cc = relay.countryCode;
+                std::transform(cc.begin(), cc.end(), cc.begin(), ::towupper);
+                if (cc == L"CN")
+                    return true;
+            }
+            if (relay.country.find(L"中国") != std::wstring::npos)
+                return true;
+            auto lower = relay.country;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+            return lower.find(L"china") != std::wstring::npos;
+        }
+
         std::wstring TitleCase(std::wstring city)
         {
             // Broker cities are English ("Los Angeles", "helsinki"); normalize
@@ -277,6 +296,17 @@ namespace Services
         auto& api = CoreSupervisor::Instance().Core().EnsureRunning(false);
         std::vector<RelayInfo> relays;
         auto serverTime = api.GetRelays(relays);
+
+        // Default-off for mainland China relays (volunteer nodes with very
+        // poor availability); the settings page carries the security warning.
+        size_t hidden = 0;
+        if (AppSettings::Load().hideCnRelays)
+        {
+            auto keep = std::stable_partition(relays.begin(), relays.end(),
+                [](RelayInfo const& r) { return !IsMainlandChinaRelay(r); });
+            hidden = static_cast<size_t>(std::distance(keep, relays.end()));
+            relays.erase(keep, relays.end());
+        }
         BuildLabels(relays);
 
         long ranked = 0;
@@ -287,7 +317,15 @@ namespace Services
 
         auto& store = RelayStore::Instance();
         store.SetRelays(std::move(relays), summary);
-        if (store.SelectedId().empty())
+        if (hidden > 0)
+            AppLog::Write(I18n::Tr(L"log.cnRelaysHidden", std::to_wstring(hidden)));
+        // A selection pointing at a relay that is no longer listed (hidden or
+        // gone upstream) must not silently drive the connect button.
+        auto selected = store.SelectedId();
+        bool selectedPresent = false;
+        for (auto const& r : store.Relays())
+            if (r.id == selected) { selectedPresent = true; break; }
+        if (selected.empty() || !selectedPresent)
             SelectLowestLatency();
     }
 
