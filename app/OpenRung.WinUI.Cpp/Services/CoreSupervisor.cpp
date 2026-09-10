@@ -133,8 +133,11 @@ namespace Services
 
         // A persisted mode=tun on a non-elevated core accepts the mode but
         // fails at connect (428); require elevation up front instead.
+        // Plain text, not the dlg.elevBody template: the caller feeds this
+        // back into I18n::Tr as {0}, and a template-in-template used to hang
+        // the UI thread in the replacement loop.
         if (preferred == L"tun" && !state.elevated)
-            return {false, true, I18n::Tr(L"dlg.elevBody")};
+            return {false, true, I18n::Tr(L"dlg.elevOffer")};
         return {};
     }
 
