@@ -3,6 +3,7 @@
 #include "AppLog.h"
 #include "AppSettings.h"
 #include "Localization.h"
+#include "RelayDirectory.h"
 #include "../Models/Dto.h"
 
 using namespace winrt::Windows::Data::Json;
@@ -84,6 +85,8 @@ namespace Services
 
     void CoreSupervisor::Stop()
     {
+        // A going-away core cannot serve the ladder's next dial; cancel first.
+        RelayDirectory::CancelFailover(I18n::Tr(L"failover.reasonCoreStop"));
         m_disposed = true;
         m_stopStream = true;
         // Core death drops the SSE socket, unblocking the stream thread's read.
@@ -227,5 +230,6 @@ namespace Services
             AppLog::Write(L"core state: " + (prev ? *prev : L"start") + L" -> " + state.status + extra);
         }
         if (StateChanged) StateChanged(state);
+        RelayDirectory::OnStateForFailover(state);
     }
 }

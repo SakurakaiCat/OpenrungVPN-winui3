@@ -85,5 +85,16 @@ namespace Services
         /// Re-applies display labels of the cached relay list in the active
         /// language (no network round-trip); no-op when the list is empty.
         void Retitle();
+
+        /// Automatic failover: called on every core state update. When a
+        /// connect attempt ends in "failed" with a relay-reachability error,
+        /// starts a worker ladder that tries the remaining relays in the
+        /// directory (lowest measured latency first) until one connects or
+        /// all have failed. No-op while a ladder is already running.
+        void OnStateForFailover(StateSnapshot const& state);
+        /// Stops a running ladder (user pressed connect/disconnect, or the
+        /// core is going away). Safe to call when idle.
+        void CancelFailover(std::wstring const& reason);
+        bool FailoverActive();
     }
 }
