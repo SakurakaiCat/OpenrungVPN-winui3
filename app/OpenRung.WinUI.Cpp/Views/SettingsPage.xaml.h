@@ -37,6 +37,8 @@ namespace winrt::OpenRung::WinUI::implementation
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void Ipv6Toggle_Toggled(winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void HideCnToggle_Toggled(winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
     private:
         /// Last update-check outcome, so a language switch can re-render the
@@ -69,6 +71,7 @@ namespace winrt::OpenRung::WinUI::implementation
         bool m_suppressSelection = false;
         bool m_suppressAutoClear = false;
         bool m_suppressLanguage = false;
+        bool m_suppressHideCn = false;
         bool m_suppressDns = false;
         bool m_proxyBusy = false;
         bool m_updateBusy = false;

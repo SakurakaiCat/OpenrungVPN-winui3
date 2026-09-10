@@ -61,6 +61,16 @@ The resulting `dist/` directory (`OpenRung.WinUI.exe` + `core/openrung-core.exe`
 
 ![设置/Settings](docs/screenshots/settings.png)
 
+**TUN 模式连接**（右）与 IPinfo 出口 IP 验证（左）：连接东京节点后，IP 已变为节点所在地（日本东京）。
+**TUN connected** (right) with the exit IP verified on IPinfo (left): after connecting to the Tokyo relay, the public IP resolves to Tokyo, Japan.
+
+![TUN 模式连接验证 / TUN connection verified](docs/screenshots/tun-connected.png)
+
+## 节点过滤 / Node filter
+
+中国大陆节点由志愿者提供，可用性极差，默认在节点列表中隐藏（设置 → 节点列表 → 隐藏中国大陆节点可关闭）。如需使用，请自行评估其安全性与合规风险。
+Mainland China nodes are volunteer-provided with very poor availability and are hidden from the node lists by default (Settings → Node list → toggle). If you enable them, evaluate their security and compliance yourself.
+
 ## 运行 / Run
 
 双击 `OpenRung.WinUI.exe`：大按钮负责连接；模式切换选择 代理 / TUN；图标常驻系统托盘。

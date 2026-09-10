@@ -61,6 +61,20 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
+            <TextBlock x:Name="RelayHeader" FontWeight="SemiBold" Text="节点列表" />
+            <ToggleSwitch
+                x:Name="HideCnToggle"
+                HorizontalAlignment="Left"
+                Margin="0,4,0,0"
+                Toggled="HideCnToggle_Toggled" />
+            <TextBlock
+                x:Name="HideCnDesc"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
             <TextBlock x:Name="DnsHeader" FontWeight="SemiBold" Text="DNS" />
             <TextBlock
                 x:Name="DnsDesc"

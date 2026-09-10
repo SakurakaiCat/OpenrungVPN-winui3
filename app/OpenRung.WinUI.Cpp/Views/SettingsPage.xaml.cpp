@@ -11,6 +11,7 @@
 #include "../Services/CoreApiClient.h"
 #include "../Services/CoreSupervisor.h"
 #include "../Services/Localization.h"
+#include "../Services/RelayDirectory.h"
 #include "../Services/UpdateCheck.h"
 #include "StateUi.h"
 
@@ -58,6 +59,10 @@ namespace winrt::OpenRung::WinUI::implementation
         AutoClearCheck().IsChecked(Services::AppSettings::Load().autoClearProxy);
         m_suppressAutoClear = false;
         RenderSystemProxy();
+        // Persisted mainland-relay filter preference.
+        m_suppressHideCn = true;
+        HideCnToggle().IsOn(Services::AppSettings::Load().hideCnRelays);
+        m_suppressHideCn = false;
         LoadDns();
         Services::AppState::Instance().AddListener(&m_stateKey, [this, weak = m_lifetime.Weak()] {
             if (!StateUi::Lifetime::Live(weak)) return;
@@ -132,6 +137,22 @@ namespace winrt::OpenRung::WinUI::implementation
     void SettingsPage::ClearProxy_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
     {
         ClearNow(L"user request");
+    }
+
+    void SettingsPage::HideCnToggle_Toggled(Windows::Foundation::IInspectable const&,
+        RoutedEventArgs const&)
+    {
+        if (m_suppressHideCn)
+            return;
+        bool hide = HideCnToggle().IsOn();
+        auto settings = Services::AppSettings::Load();
+        settings.hideCnRelays = hide;
+        settings.Save();
+        Services::AppLog::Write(hide ? L"mainland China relays hidden"
+                                     : L"mainland China relays shown");
+        // Reload the directory so both pages reflect the new filter at once;
+        // failures surface through the store's Error line, never a dialog.
+        Services::RelayDirectory::UpdateFromRemote();
     }
 
     void SettingsPage::ClearNow(std::wstring const& reason)
@@ -536,6 +557,11 @@ namespace winrt::OpenRung::WinUI::implementation
         AutoClearCheck().Content(box_value(winrt::hstring(I18n::Tr(L"settings.autoClear"))));
         ClearProxyButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.clearNow"))));
         LanguageHeader().Text(I18n::Tr(L"settings.language"));
+        RelayHeader().Text(I18n::Tr(L"settings.relays"));
+        HideCnToggle().Header(box_value(winrt::hstring(I18n::Tr(L"settings.hideCn"))));
+        HideCnToggle().OnContent(box_value(winrt::hstring(I18n::Tr(L"settings.on"))));
+        HideCnToggle().OffContent(box_value(winrt::hstring(I18n::Tr(L"settings.off"))));
+        HideCnDesc().Text(I18n::Tr(L"settings.hideCnDesc"));
         DnsHeader().Text(I18n::Tr(L"settings.dns"));
         DnsDesc().Text(I18n::Tr(L"settings.dnsDesc"));
         DnsIpv6Desc().Text(I18n::Tr(L"settings.dnsIpv6Desc"));
