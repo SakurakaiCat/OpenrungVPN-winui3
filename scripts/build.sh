@@ -46,6 +46,9 @@ mkdir -p "$(dirname "$STAGE_WSL")"
 cp -r app/OpenRung.WinUI.Cpp "$STAGE_WSL"
 rm -rf "$STAGE_WSL/obj" "$STAGE_WSL/x64"
 
+# MSBuild never cleans OutDir: a stale core\openrung-core.exe from an earlier
+# build here would be copied over the freshly built one during staging below.
+rm -rf "$BUILD_TMP_WSL/dist"
 mkdir -p "$BUILD_TMP_WSL/obj" "$BUILD_TMP_WSL/dist"
 
 PROJ="$STAGE_WIN\\OpenRung.WinUI.Cpp.vcxproj"
