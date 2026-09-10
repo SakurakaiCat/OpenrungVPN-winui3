@@ -238,6 +238,33 @@ namespace Services
             SelectLowestLatency();
     }
 
+    bool RelayDirectory::UpdateFromRemote()
+    {
+        auto& store = RelayStore::Instance();
+        // Busy gating: callers are all on the UI thread (click handlers),
+        // so check-then-set cannot race here. The auto-refresh thread also
+        // honors Loading() before calling Load().
+        if (store.Loading())
+            return false;
+        store.SetLoading(true);
+        store.SetError(L"");
+        std::thread([&store] {
+            try
+            {
+                Load();
+                AppLog::Write(L"从远端更新节点完成：" +
+                    std::to_wstring(store.Relays().size()) + L" 个节点");
+            }
+            catch (std::exception const& ex)
+            {
+                store.SetError(Services::Utf8ToWide(ex.what()));
+                AppLog::Write(L"从远端更新节点失败：" + Utf8ToWide(ex.what()));
+            }
+            store.SetLoading(false);
+        }).detach();
+        return true;
+    }
+
     void RelayDirectory::StartAutoRefresh()
     {
         static std::once_flag once;

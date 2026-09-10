@@ -66,20 +66,7 @@ namespace winrt::OpenRung::WinUI::implementation
     // (RelayStore::Error) instead of a dialog, so no XamlRoot is needed.
     void HomePage::LoadRelays()
     {
-        auto& store = Services::RelayStore::Instance();
-        store.SetLoading(true);
-        store.SetError(L"");
-        std::thread([&store, weak = m_lifetime.Weak()] {
-            try
-            {
-                Services::RelayDirectory::Load();
-            }
-            catch (std::exception const& ex)
-            {
-                store.SetError(Services::Utf8ToWide(ex.what()));
-            }
-            store.SetLoading(false);
-        }).detach();
+        Services::RelayDirectory::UpdateFromRemote();
     }
 
     void HomePage::Refresh_Click(Windows::Foundation::IInspectable const&,

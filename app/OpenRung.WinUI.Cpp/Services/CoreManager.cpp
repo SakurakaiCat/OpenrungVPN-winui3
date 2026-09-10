@@ -81,6 +81,8 @@ namespace Services
         std::lock_guard ensure(m_ensureLock);
         {
             std::lock_guard lock(m_gate);
+            if (m_stopping)
+                throw std::runtime_error("core is shutting down");
             bool haveLiveProc = m_process &&
                 ::WaitForSingleObject(m_process.get(), 0) == WAIT_TIMEOUT;
             if (!haveLiveProc)
@@ -468,6 +470,12 @@ namespace Services
 
     void CoreManager::Stop()
     {
+        // Serialize against EnsureRunning: a spawn/adopt in flight must
+        // finish and then be shut down here. Without this, quitting while
+        // the startup path was still spawning left a freshly spawned core
+        // running after the app exited (m_stopping was even reset to false
+        // mid-teardown).
+        std::lock_guard ensure(m_ensureLock);
         m_stopping = true;
         if (m_stopEvent) ::SetEvent(m_stopEvent.get());
 

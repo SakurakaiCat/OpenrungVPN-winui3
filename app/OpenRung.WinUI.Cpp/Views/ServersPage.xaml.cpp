@@ -178,20 +178,7 @@ namespace winrt::OpenRung::WinUI::implementation
 
     void ServersPage::Reload()
     {
-        auto& store = Services::RelayStore::Instance();
-        store.SetLoading(true);
-        store.SetError(L"");
-        std::thread([&store, weak = m_lifetime.Weak()] {
-            try
-            {
-                Services::RelayDirectory::Load();
-            }
-            catch (std::exception const& ex)
-            {
-                store.SetError(Services::Utf8ToWide(ex.what()));
-            }
-            store.SetLoading(false);
-        }).detach();
+        Services::RelayDirectory::UpdateFromRemote();
     }
 
     void ServersPage::OnStoreChanged()

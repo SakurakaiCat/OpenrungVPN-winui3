@@ -162,6 +162,12 @@ namespace winrt::OpenRung::WinUI::implementation
                 {
                 }
                 Application::Current().Exit();
+                // Belt and braces: Application::Exit() alone has been known
+                // to leave the message pump running when a window reference
+                // lingers; WM_QUIT makes the Application::Start loop in
+                // wWinMain return deterministically so the process (and the
+                // statics that would re-Stop the core) actually unwind.
+                ::PostQuitMessage(0);
             });
         }).detach();
     }

@@ -140,7 +140,7 @@
                             Grid.Column="2"
                             Padding="8"
                             Click="Refresh_Click"
-                            ToolTipService.ToolTip="重新拉取节点列表并测速">
+                            ToolTipService.ToolTip="从远端更新节点列表并测速">
                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                         </Button>
                     </Grid>

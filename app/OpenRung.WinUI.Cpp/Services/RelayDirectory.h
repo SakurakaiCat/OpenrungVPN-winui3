@@ -61,6 +61,11 @@ namespace Services
     namespace RelayDirectory
     {
         void Load();  // fetch + assign titles + publish (throws)
+        /// Fire-and-forget "update from remote": re-fetches the ranked
+        /// directory from the broker via the core on a worker thread, with
+        /// busy gating (returns false when a load is already running).
+        /// Failures surface through the store's Error, never a dialog.
+        bool UpdateFromRemote();
         /// Starts the once-per-minute background refresh: re-fetches the
         /// ranked directory (the core re-probes upstream availability each
         /// time) and publishes updates; selection is preserved. Errors are
