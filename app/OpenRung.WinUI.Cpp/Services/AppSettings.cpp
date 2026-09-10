@@ -68,6 +68,12 @@ namespace Services
             auto val = obj.TryLookup(L"autoClearProxy");
             if (val && val.ValueType() == JsonValueType::Boolean)
                 s.autoClearProxy = val.GetBoolean();
+            auto mode = obj.TryLookup(L"preferredMode");
+            if (mode && mode.ValueType() == JsonValueType::String)
+                s.preferredMode = mode.GetString();
+            auto lang = obj.TryLookup(L"language");
+            if (lang && lang.ValueType() == JsonValueType::String)
+                s.language = lang.GetString();
         }
         return s;
     }
@@ -81,6 +87,8 @@ namespace Services
 
             JsonObject obj;
             obj.SetNamedValue(L"autoClearProxy", JsonValue::CreateBooleanValue(autoClearProxy));
+            obj.SetNamedValue(L"preferredMode", JsonValue::CreateStringValue(preferredMode));
+            obj.SetNamedValue(L"language", JsonValue::CreateStringValue(language));
             auto utf8 = WideToUtf8(obj.Stringify().c_str());
 
             HANDLE file = ::CreateFileW(SettingsPath().c_str(), GENERIC_WRITE, 0,

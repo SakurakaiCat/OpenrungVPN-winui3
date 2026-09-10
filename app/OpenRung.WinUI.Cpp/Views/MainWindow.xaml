@@ -30,7 +30,7 @@
             Grid.Row="1"
             x:Name="NavView"
             IsBackButtonVisible="Collapsed"
-            IsSettingsVisible="True"
+            IsSettingsVisible="False"
             OpenPaneLength="200"
             PaneDisplayMode="Left"
             SelectionChanged="NavView_SelectionChanged"
@@ -45,6 +45,13 @@
                 <NavigationViewItem Content="日志" Tag="logs">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9D5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <!-- own settings item: the built-in one ignores runtime Content
+                     updates, which breaks the language switch -->
+                <NavigationViewItem Content="设置" Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

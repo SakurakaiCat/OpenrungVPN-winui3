@@ -3,6 +3,7 @@
 #include "CoreApiClient.h"
 #include "AppLog.h"
 #include "InterceptionDiagnostics.h"
+#include "Localization.h"
 
 using namespace winrt::Windows::Data::Json;
 using namespace Services;
@@ -87,8 +88,7 @@ namespace Services
 
         if (resp.status == 405 && method == L"POST")
         {
-            message = L"本机有代理/VPN 拦截了发往核心的请求（" + method + L" " + path +
-                L" → 405）。请退出其 TUN/透明代理模式或整个客户端后重试（详见上方 [诊断] 行）。";
+            message = I18n::Tr(L"dlg.intercepted405", method + L" " + path);
         }
 
         throw CoreApiException(resp.status, code, message);

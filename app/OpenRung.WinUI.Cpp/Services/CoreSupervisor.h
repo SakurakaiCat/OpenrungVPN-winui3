@@ -43,6 +43,41 @@ namespace Services
         /// Stop the event stream and the core. Idempotent.
         void Stop();
 
+        /// Lifecycle info for the settings page's core manager.
+        enum class CorePhase
+        {
+            Stopped,
+            Running,
+        };
+        struct CoreStatus
+        {
+            CorePhase phase = CorePhase::Stopped;
+            int pid = 0;
+            std::wstring lastError;
+        };
+        /// Non-blocking snapshot of the core lifecycle (derived from
+        /// CoreManager; no starting/stopping intermediates are tracked).
+        CoreStatus Describe() const;
+
+        /// Outcome of SyncPreferredMode.
+        struct ModeSync
+        {
+            bool applied = true;
+            bool elevationRequired = false;
+            std::wstring detail; // why elevation is needed / the error
+        };
+
+        /// Brings the running core to AppSettings::preferredMode (TUN by
+        /// default). Also requires elevation when TUN is preferred and the
+        /// running core is not elevated (a persisted mode=tun on a
+        /// non-elevated core would only fail later at connect). Never
+        /// restarts the core itself; call from a worker thread.
+        ModeSync SyncPreferredMode();
+
+        /// Restart the core elevated (UAC prompt) and apply the preferred
+        /// mode. Blocking; throws when the user declines UAC or on failure.
+        void ApplyPreferredModeElevated();
+
     private:
         CoreManager m_core;
         mutable std::mutex m_gate;

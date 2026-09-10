@@ -286,6 +286,7 @@ inline const wchar_t* LookupCityLower(const std::wstring& key) {
         {L"hanoi", L"河内"},
         {L"ho chi minh city", L"胡志明市"},
         {L"mumbai", L"孟买"},
+        {L"chennai", L"金奈"},
         {L"new delhi", L"新德里"},
         {L"frankfurt", L"法兰克福"},
         {L"nuremberg", L"纽伦堡"},
@@ -327,6 +328,112 @@ inline const wchar_t* LookupCityLower(const std::wstring& key) {
         {L"montreal", L"蒙特利尔"},
     };
     for (auto const& e : table) if (key == e.code) return e.name;
+    return nullptr;
+}
+
+
+// --- English variants (added for the UI language switch) ---
+
+// ISO 3166-1 English names for the countries that actually host relays;
+// keyed by uppercase alpha-2.
+inline const wchar_t* LookupCountryEn(const std::wstring& key) {
+    struct Entry { wchar_t code[3]; const wchar_t* name; };
+    static const Entry table[] = {
+        {L"CN", L"China"},
+        {L"DE", L"Germany"},
+        {L"FI", L"Finland"},
+        {L"IN", L"India"},
+        {L"JP", L"Japan"},
+        {L"KR", L"South Korea"},
+        {L"SG", L"Singapore"},
+        {L"US", L"United States"},
+    };
+    for (auto const& e : table) if (key == e.code) return e.name;
+    return nullptr;
+}
+
+// zh -> en reverse of the country table (fallback when a relay carries a
+// zh country name instead of an alpha-2 code).
+inline const wchar_t* LookupCountryEnFromZh(const std::wstring& key) {
+    struct Entry { const wchar_t* zh; const wchar_t* en; };
+    static const Entry table[] = {
+        {L"中国", L"China"},
+        {L"德国", L"Germany"},
+        {L"芬兰", L"Finland"},
+        {L"印度", L"India"},
+        {L"日本", L"Japan"},
+        {L"韩国", L"South Korea"},
+        {L"新加坡", L"Singapore"},
+        {L"美国", L"United States"},
+    };
+    for (auto const& e : table) if (key == e.zh) return e.en;
+    return nullptr;
+}
+
+// zh -> en reverse of the city table (broker sends zh city names).
+inline const wchar_t* LookupCityEnFromZh(const std::wstring& key) {
+    struct Entry { const wchar_t* zh; const wchar_t* name; };
+    static const Entry table[] = {
+        {L"东京", L"Tokyo"},
+        {L"大阪", L"Osaka"},
+        {L"首尔", L"Seoul"},
+        {L"仁川", L"Incheon"},
+        {L"釜山", L"Busan"},
+        {L"新加坡", L"Singapore"},
+        {L"香港", L"Hong Kong"},
+        {L"台北", L"Taipei"},
+        {L"上海", L"Shanghai"},
+        {L"北京", L"Beijing"},
+        {L"广州", L"Guangzhou"},
+        {L"深圳", L"Shenzhen"},
+        {L"曼谷", L"Bangkok"},
+        {L"吉隆坡", L"Kuala Lumpur"},
+        {L"雅加达", L"Jakarta"},
+        {L"马尼拉", L"Manila"},
+        {L"河内", L"Hanoi"},
+        {L"胡志明市", L"Ho Chi Minh City"},
+        {L"孟买", L"Mumbai"},
+        {L"新德里", L"New Delhi"},
+        {L"法兰克福", L"Frankfurt"},
+        {L"纽伦堡", L"Nuremberg"},
+        {L"柏林", L"Berlin"},
+        {L"阿姆斯特丹", L"Amsterdam"},
+        {L"伦敦", L"London"},
+        {L"巴黎", L"Paris"},
+        {L"苏黎世", L"Zurich"},
+        {L"维也纳", L"Vienna"},
+        {L"马德里", L"Madrid"},
+        {L"巴塞罗那", L"Barcelona"},
+        {L"米兰", L"Milan"},
+        {L"罗马", L"Rome"},
+        {L"斯德哥尔摩", L"Stockholm"},
+        {L"华沙", L"Warsaw"},
+        {L"都柏林", L"Dublin"},
+        {L"伊斯坦布尔", L"Istanbul"},
+        {L"莫斯科", L"Moscow"},
+        {L"迪拜", L"Dubai"},
+        {L"赫尔辛基", L"Helsinki"},
+        {L"约翰内斯堡", L"Johannesburg"},
+        {L"圣保罗", L"Sao Paulo"},
+        {L"圣地亚哥", L"Santiago"},
+        {L"墨西哥城", L"Mexico City"},
+        {L"悉尼", L"Sydney"},
+        {L"墨尔本", L"Melbourne"},
+        {L"奥克兰", L"Auckland"},
+        {L"纽约", L"New York"},
+        {L"洛杉矶", L"Los Angeles"},
+        {L"圣何塞", L"San Jose"},
+        {L"西雅图", L"Seattle"},
+        {L"达拉斯", L"Dallas"},
+        {L"芝加哥", L"Chicago"},
+        {L"亚特兰大", L"Atlanta"},
+        {L"迈阿密", L"Miami"},
+        {L"菲尼克斯", L"Phoenix"},
+        {L"温哥华", L"Vancouver"},
+        {L"多伦多", L"Toronto"},
+        {L"蒙特利尔", L"Montreal"},
+    };
+    for (auto const& e : table) if (key == e.zh) return e.name;
     return nullptr;
 }
 

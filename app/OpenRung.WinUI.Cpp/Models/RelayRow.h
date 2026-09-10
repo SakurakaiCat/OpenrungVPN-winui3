@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "RelayRow.g.h"
 #include "../Models/Dto.h"
+#include "../Services/Localization.h"
 
 namespace winrt::OpenRung::WinUI::implementation
 {
@@ -62,18 +63,21 @@ namespace StateUi
         row.DisplayTitle(winrt::hstring(relay.label.empty() ? relay.id : relay.label));
         row.NodeClass(winrt::hstring(relay.nodeClass));
         row.LatencyText(winrt::hstring(
-            relay.latencyMs ? std::to_wstring(*relay.latencyMs) + L" ms" : L"未测速"));
+            relay.latencyMs ? std::to_wstring(*relay.latencyMs) + L" ms"
+                            : Services::I18n::Tr(L"row.notTested")));
         // Client-side measurements: TCPing (handshake) and real delay
         // (through-tunnel generate_204). -1 marks a failed rung.
         std::wstring test;
         if (relay.tcpingMs)
-            test += (*relay.tcpingMs >= 0 ? L"TCPing " + std::to_wstring(*relay.tcpingMs) + L" ms"
-                                          : L"TCPing 失败");
+            test += (*relay.tcpingMs >= 0
+                ? L"TCPing " + std::to_wstring(*relay.tcpingMs) + L" ms"
+                : Services::I18n::Tr(L"row.tcpingFailed"));
         if (relay.realMs)
         {
             if (!test.empty()) test += L" · ";
-            test += (*relay.realMs >= 0 ? L"真延迟 " + std::to_wstring(*relay.realMs) + L" ms"
-                                        : L"真延迟 失败");
+            test += (*relay.realMs >= 0
+                ? Services::I18n::Tr(L"row.realDelay") + L" " + std::to_wstring(*relay.realMs) + L" ms"
+                : Services::I18n::Tr(L"row.realDelayFailed"));
         }
         row.TestText(winrt::hstring(test));
         // Bundled flag images from the public-domain flagcdn set; Windows has

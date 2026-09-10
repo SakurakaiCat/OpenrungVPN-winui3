@@ -75,5 +75,8 @@ namespace Services
         /// Title helpers exposed for the home page card.
         std::wstring CountryName(RelayInfo const& relay);
         std::wstring DisplayTitleOf(RelayInfo const& relay); // computed lazily if absent
+        /// Re-applies display labels of the cached relay list in the active
+        /// language (no network round-trip); no-op when the list is empty.
+        void Retitle();
     }
 }

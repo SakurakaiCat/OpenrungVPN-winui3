@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "CoreSupervisor.h"
 #include "AppLog.h"
+#include "AppSettings.h"
+#include "Localization.h"
 #include "../Models/Dto.h"
 
 using namespace winrt::Windows::Data::Json;
@@ -89,6 +91,59 @@ namespace Services
         if (m_streamThread.joinable())
             m_streamThread.join();
         m_streamRunning = false;
+    }
+
+    CoreSupervisor::CoreStatus CoreSupervisor::Describe() const
+    {
+        CoreStatus status;
+        if (m_core.IsCoreRunning())
+        {
+            status.phase = CorePhase::Running;
+            if (auto pid = m_core.EndpointPid())
+                status.pid = *pid;
+        }
+        return status;
+    }
+
+    CoreSupervisor::ModeSync CoreSupervisor::SyncPreferredMode()
+    {
+        auto preferred = AppSettings::Load().preferredMode;
+        if (preferred.empty())
+            preferred = L"tun";
+
+        auto& api = m_core.EnsureRunning(false);
+        auto state = api.GetState();
+
+        if (state.mode != preferred)
+        {
+            try
+            {
+                api.SetMode(preferred);
+                AppLog::Write(L"mode synced to preference: " + preferred);
+            }
+            catch (ElevationRequiredException const& ex)
+            {
+                return {false, true, ex.WideMessage()};
+            }
+            catch (std::exception const& ex)
+            {
+                return {false, false, Utf8ToWide(ex.what())};
+            }
+        }
+
+        // A persisted mode=tun on a non-elevated core accepts the mode but
+        // fails at connect (428); require elevation up front instead.
+        if (preferred == L"tun" && !state.elevated)
+            return {false, true, I18n::Tr(L"dlg.elevBody")};
+        return {};
+    }
+
+    void CoreSupervisor::ApplyPreferredModeElevated()
+    {
+        auto preferred = AppSettings::Load().preferredMode;
+        RestartElevated();
+        m_core.EnsureRunning(false).SetMode(preferred);
+        AppLog::Write(L"core restarted elevated; mode set to " + preferred);
     }
 
     void CoreSupervisor::RunEventLoop()

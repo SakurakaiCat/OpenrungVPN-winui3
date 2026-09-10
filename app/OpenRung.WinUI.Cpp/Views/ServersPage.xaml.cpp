@@ -5,6 +5,7 @@
 #endif
 
 #include "../Models/Dto.h"
+#include "../Services/Localization.h"
 #include "../Services/RelayDirectory.h"
 #include "../Services/CoreSupervisor.h"
 #include "StateUi.h"
@@ -13,6 +14,7 @@
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
+using namespace Services;
 
 namespace winrt::OpenRung::WinUI::implementation
 {
@@ -27,6 +29,7 @@ namespace winrt::OpenRung::WinUI::implementation
             OnStoreChanged();
         });
         OnStoreChanged();
+        ApplyStrings();
     }
 
     ServersPage::~ServersPage()
@@ -52,6 +55,17 @@ namespace winrt::OpenRung::WinUI::implementation
         Services::RelayDirectory::SelectLowestLatency();
     }
 
+    void ServersPage::ApplyStrings()
+    {
+        UpdateRemoteButton().Content(box_value(winrt::hstring(I18n::Tr(L"servers.updateRemote"))));
+        ToolTipService::SetToolTip(UpdateRemoteButton(), box_value(winrt::hstring(I18n::Tr(L"home.refreshTip"))));
+        AutoSelectToolbarButton().Content(box_value(winrt::hstring(I18n::Tr(L"servers.autoSelect"))));
+        TcpingButton().Content(box_value(winrt::hstring(I18n::Tr(L"servers.tcping"))));
+        RealDelayButton().Content(box_value(winrt::hstring(I18n::Tr(L"servers.realDelay"))));
+        TestHint().Text(I18n::Tr(L"servers.testHint"));
+        ErrorBar().Title(winrt::hstring(I18n::Tr(L"servers.errorTitle")));
+    }
+
     void ServersPage::Tcping_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
     {
         auto& store = Services::RelayStore::Instance();
@@ -64,7 +78,7 @@ namespace winrt::OpenRung::WinUI::implementation
             return;
 
         store.SetTesting(true);
-        store.SetTestStatus(L"TCPing 测试中…");
+        store.SetTestStatus(I18n::Tr(L"servers.tcpingRunning"));
         // Worker thread touches only the singleton store and the API client —
         // safe if the page is navigated away mid-test.
         std::thread([ids] {
@@ -79,12 +93,13 @@ namespace winrt::OpenRung::WinUI::implementation
                 int ok = 0;
                 for (auto const& result : results)
                     if (result.avgMs) ++ok;
-                store.SetTestStatus(L"TCPing 完成：" + std::to_wstring(ok) + L"/" +
-                                    std::to_wstring(results.size()) + L" 成功");
+                store.SetTestStatus(I18n::Tr(L"servers.tcpingDone",
+                    std::to_wstring(ok), std::to_wstring(results.size())));
             }
             catch (std::exception const& ex)
             {
-                store.SetTestStatus(L"TCPing 失败：" + Services::Utf8ToWide(ex.what()));
+                store.SetTestStatus(I18n::Tr(L"servers.tcpingFailed",
+                    Services::Utf8ToWide(ex.what())));
             }
             store.SetTesting(false);
         }).detach();
@@ -105,12 +120,12 @@ namespace winrt::OpenRung::WinUI::implementation
             auto state = api.GetState();
             if (state.status != L"disconnected")
             {
-                store.SetTestStatus(L"真延迟测试需要先断开连接（当前状态：" + state.status + L"）");
+                store.SetTestStatus(I18n::Tr(L"servers.realDelayNeedDisconnect", state.status));
                 return;
             }
             if (state.mode == L"tun")
             {
-                store.SetTestStatus(L"TUN 模式下无法逐节点测试，请先切回代理模式");
+                store.SetTestStatus(I18n::Tr(L"servers.realDelayTunBlocked"));
                 return;
             }
         }
@@ -120,7 +135,7 @@ namespace winrt::OpenRung::WinUI::implementation
         }
 
         store.SetTesting(true);
-        store.SetTestStatus(L"真延迟测试中…");
+        store.SetTestStatus(I18n::Tr(L"servers.realDelayRunning"));
         std::thread([relays] {
             auto& store = Services::RelayStore::Instance();
             int total = static_cast<int>(relays.size());
@@ -134,9 +149,9 @@ namespace winrt::OpenRung::WinUI::implementation
                 {
                     if (!store.Testing())
                         return; // page is gone or a refresh reset the run
-                    store.SetTestStatus(L"真延迟 " + std::to_wstring(done + 1) + L"/" +
-                                        std::to_wstring(total) + L"：" +
-                                        Services::RelayDirectory::DisplayTitleOf(relay));
+                    store.SetTestStatus(I18n::Tr(L"servers.realDelayProgress",
+                        std::to_wstring(done + 1), std::to_wstring(total),
+                        Services::RelayDirectory::DisplayTitleOf(relay)));
                     auto result = api.RealDelay(relay.id);
                     if (result.ms)
                     {
@@ -158,10 +173,10 @@ namespace winrt::OpenRung::WinUI::implementation
                     firstError = Services::Utf8ToWide(ex.what());
                 ++failures;
             }
-            std::wstring status = L"真延迟完成：" + std::to_wstring(total - failures) + L"/" +
-                                  std::to_wstring(total) + L" 成功";
+            std::wstring status = I18n::Tr(L"servers.realDelayDone",
+                std::to_wstring(total - failures), std::to_wstring(total));
             if (!firstError.empty())
-                status += L"（首个失败：" + firstError + L"）";
+                status += I18n::Tr(L"servers.firstFailure", firstError);
             store.SetTestStatus(status);
             store.SetTesting(false);
         }).detach();

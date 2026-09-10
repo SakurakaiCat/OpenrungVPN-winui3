@@ -12,6 +12,14 @@ namespace Services
         /// option, instead of letting proxy mode take it over and restore it later.
         bool autoClearProxy = false;
 
+        /// Capture mode the app keeps the core in. Defaults to TUN (full-device
+        /// capture); switching to 代理模式 in Settings persists "proxy" here and
+        /// silences the startup elevation prompt.
+        std::wstring preferredMode = L"tun";
+
+        /// UI language choice: "system" (default), "zh" or "en".
+        std::wstring language = L"system";
+
         static AppSettings Load();
         void Save() const;
 

@@ -9,11 +9,12 @@
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" VerticalScrollMode="Enabled">
         <StackPanel Padding="24" Spacing="16" MaxWidth="560">
-        <TextBlock FontSize="20" FontWeight="SemiBold" Text="设置" />
+        <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" Text="设置" />
 
         <StackPanel Spacing="4">
-            <TextBlock FontWeight="SemiBold" Text="捕获模式" />
+            <TextBlock x:Name="CaptureModeHeader" FontWeight="SemiBold" Text="捕获模式" />
             <TextBlock
+                x:Name="CaptureModeDesc"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
                 TextWrapping="Wrap">
@@ -29,7 +30,7 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
-            <TextBlock FontWeight="SemiBold" Text="系统代理" />
+            <TextBlock x:Name="SystemProxyHeader" FontWeight="SemiBold" Text="系统代理" />
             <TextBlock
                 x:Name="SystemProxyText"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -48,14 +49,47 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
-            <TextBlock FontWeight="SemiBold" Text="核心" />
-            <TextBlock x:Name="CoreVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="EndpointText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <TextBlock x:Name="LanguageHeader" FontWeight="SemiBold" Text="语言" />
+            <ComboBox
+                x:Name="LanguageCombo"
+                HorizontalAlignment="Left"
+                SelectionChanged="LanguageCombo_SelectionChanged">
+                <ComboBoxItem Content="跟随系统" Tag="system" />
+                <ComboBoxItem Content="简体中文" Tag="zh" />
+                <ComboBoxItem Content="English" Tag="en" />
+            </ComboBox>
         </StackPanel>
 
         <StackPanel Spacing="4">
-            <TextBlock FontWeight="SemiBold" Text="关于" />
+            <TextBlock x:Name="CoreHeader" FontWeight="SemiBold" Text="核心" />
+            <TextBlock x:Name="CoreVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <TextBlock x:Name="EndpointText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <TextBlock x:Name="CoreStatusText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button
+                    x:Name="CoreStartButton"
+                    Click="CoreStart_Click"
+                    Content="启动核心" />
+                <Button
+                    x:Name="CoreStopButton"
+                    Click="CoreStop_Click"
+                    Content="停止核心" />
+                <Button
+                    x:Name="CoreRestartButton"
+                    Click="CoreRestart_Click"
+                    Content="重启核心" />
+            </StackPanel>
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                x:Name="CoreManagerHint"
+                TextWrapping="Wrap"
+                Text="重启核心会保留当前提权状态（TUN 模式下将重新弹出 UAC 确认）。" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+            <TextBlock x:Name="AboutHeader" FontWeight="SemiBold" Text="关于" />
             <StackPanel HorizontalAlignment="Center" Spacing="12">
                 <Image Width="128" Height="128" HorizontalAlignment="Center">
                     <Image.Source>
@@ -83,6 +117,7 @@
                     Content="GitHub @SakurakaiCat"
                     NavigateUri="https://github.com/SakurakaiCat" />
                 <TextBlock
+                    x:Name="AboutMaintainerText"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     HorizontalAlignment="Center"
                     Style="{StaticResource CaptionTextBlockStyle}"
@@ -90,13 +125,11 @@
             </StackPanel>
             <TextBlock x:Name="AppVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
             <TextBlock
+                x:Name="AboutDevText"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap">
-                <Run Text="OpenRung VPN WinUI3 由 " />
-                <Run FontWeight="SemiBold" Text="@SakurakaiCat" />
-                <Run Text=" 基于 OpenRung 仓库二次开发。" />
-            </TextBlock>
+                TextWrapping="Wrap"
+                Text="OpenRung VPN WinUI3 由 @SakurakaiCat 基于 OpenRung 仓库二次开发。" />
             <HyperlinkButton
                 Content="OpenRung 上游仓库 · github.com/openrung/openrung"
                 NavigateUri="https://github.com/openrung/openrung" />
@@ -114,6 +147,7 @@
                     Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
             <TextBlock
+                x:Name="CopyrightText"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
                 TextWrapping="Wrap"
