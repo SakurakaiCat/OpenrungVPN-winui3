@@ -58,6 +58,7 @@ namespace winrt::OpenRung::WinUI::implementation
         AutoClearCheck().IsChecked(Services::AppSettings::Load().autoClearProxy);
         m_suppressAutoClear = false;
         RenderSystemProxy();
+        LoadDns();
         Services::AppState::Instance().AddListener(&m_stateKey, [this, weak = m_lifetime.Weak()] {
             if (!StateUi::Lifetime::Live(weak)) return;
             RenderSystemProxy();
@@ -156,6 +157,187 @@ namespace winrt::OpenRung::WinUI::implementation
                 ClearProxyButton().IsEnabled(true);
             });
         }).detach();
+    }
+
+    // ---- DNS + IPv6 -----------------------------------------------------------
+
+    namespace
+    {
+        // Preset resolver lists, keyed by DnsCombo item tags. The auto preset
+        // maps to an empty list: the core then emits its own defaults
+        // (1.1.1.1 / 8.8.8.8).
+        std::vector<std::wstring> PresetServers(std::wstring const& tag)
+        {
+            if (tag == L"cloudflare") return {L"1.1.1.1", L"1.0.0.1"};
+            if (tag == L"google") return {L"8.8.8.8", L"8.8.4.4"};
+            if (tag == L"alidns") return {L"223.5.5.5", L"223.6.6.6"};
+            if (tag == L"quad9") return {L"9.9.9.9", L"149.112.112.112"};
+            return {};
+        }
+
+        // Inverse of PresetServers: which combo entry matches this config.
+        std::wstring PresetForServers(std::vector<std::wstring> const& servers)
+        {
+            if (servers.empty()) return L"auto";
+            const std::wstring presetTags[] = {L"cloudflare", L"google", L"alidns", L"quad9"};
+            for (auto const& tag : presetTags)
+                if (PresetServers(tag) == servers)
+                    return tag;
+            return L"custom";
+        }
+
+        // "a, b; c" -> {"a", "b", "c"}: separators are commas, semicolons and
+        // whitespace; empties dropped, order kept (the core validates the IPs).
+        std::vector<std::wstring> ParseServerList(std::wstring_view text)
+        {
+            std::vector<std::wstring> out;
+            std::wstring current;
+            for (auto ch : text)
+            {
+                if (ch == L',' || ch == L';' || iswspace(ch))
+                {
+                    if (!current.empty()) out.push_back(current);
+                    current.clear();
+                }
+                else
+                    current.push_back(ch);
+            }
+            if (!current.empty()) out.push_back(current);
+            return out;
+        }
+
+        int DnsComboIndexFor(std::wstring const& tag)
+        {
+            static const wchar_t* order[] = {L"auto", L"cloudflare", L"google", L"alidns", L"quad9", L"custom"};
+            for (int i = 0; i < 6; ++i)
+                if (tag == order[i]) return i;
+            return 0;
+        }
+    }
+
+    void SettingsPage::LoadDns()
+    {
+        if (m_dnsBusy)
+            return;
+        m_dnsBusy = true;
+        auto weak = m_lifetime.Weak();
+        std::thread([this, weak] {
+            std::optional<Services::DnsConfig> config;
+            std::wstring failure;
+            try
+            {
+                config = Services::CoreSupervisor::Instance().Core().EnsureRunning(false).GetDns();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+            Services::Ui::Post([this, weak, config, failure] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_dnsBusy = false;
+                if (config)
+                {
+                    m_dnsConfig = *config;
+                    RenderDns();
+                }
+                else
+                    DnsStatusText().Text(I18n::Tr(L"settings.dnsLoadFailed", failure));
+            });
+        }).detach();
+    }
+
+    // Applies m_dnsConfig to the controls without firing the handlers.
+    void SettingsPage::RenderDns()
+    {
+        m_suppressDns = true;
+        auto tag = PresetForServers(m_dnsConfig.servers);
+        DnsCombo().SelectedIndex(DnsComboIndexFor(tag));
+        DnsCustomPanel().Visibility(tag == L"custom" ? Visibility::Visible : Visibility::Collapsed);
+        std::wstring joined;
+        for (size_t i = 0; i < m_dnsConfig.servers.size(); ++i)
+        {
+            if (i) joined += L", ";
+            joined += m_dnsConfig.servers[i];
+        }
+        DnsCustomBox().Text(joined);
+        Ipv6Toggle().IsOn(m_dnsConfig.ipv6);
+        m_suppressDns = false;
+    }
+
+    void SettingsPage::SaveDns(std::vector<std::wstring> const& servers, bool ipv6)
+    {
+        if (m_dnsBusy)
+            return;
+        m_dnsBusy = true;
+        DnsSaveButton().IsEnabled(false);
+        auto weak = m_lifetime.Weak();
+        std::thread([this, weak, servers, ipv6] {
+            std::wstring failure;
+            try
+            {
+                Services::CoreSupervisor::Instance().Core().EnsureRunning(false).SetDns(servers, ipv6);
+            }
+            catch (Services::CoreApiException const& ex)
+            {
+                failure = ex.WideMessage();
+            }
+            catch (std::exception const& ex)
+            {
+                failure = Services::Utf8ToWide(ex.what());
+            }
+            Services::Ui::Post([this, weak, servers, ipv6, failure] {
+                if (!StateUi::Lifetime::Live(weak))
+                    return;
+                m_dnsBusy = false;
+                DnsSaveButton().IsEnabled(true);
+                if (failure.empty())
+                {
+                    m_dnsConfig.servers = servers;
+                    m_dnsConfig.ipv6 = ipv6;
+                    RenderDns();
+                    DnsStatusText().Text(I18n::Tr(L"settings.dnsSaved"));
+                    Services::AppLog::Write(L"DNS settings saved (apply on next connect)");
+                    return;
+                }
+                // Most likely 409 "connected": disconnect first on Home.
+                RenderDns(); // revert controls to the stored config
+                ShowDialog(I18n::Tr(L"dlg.dnsFailTitle"), failure, {}, I18n::Tr(L"dlg.close"));
+            });
+        }).detach();
+    }
+
+    void SettingsPage::DnsCombo_SelectionChanged(Windows::Foundation::IInspectable const&,
+        SelectionChangedEventArgs const&)
+    {
+        if (m_suppressDns)
+            return;
+        auto item = DnsCombo().SelectedItem().try_as<ComboBoxItem>();
+        if (!item)
+            return;
+        auto tag = winrt::unbox_value_or<hstring>(item.Tag(), L"auto");
+        DnsCustomPanel().Visibility(tag == L"custom" ? Visibility::Visible : Visibility::Collapsed);
+        if (tag == L"custom")
+            return; // applied via the save button
+        SaveDns(PresetServers(std::wstring(tag)), Ipv6Toggle().IsOn());
+    }
+
+    void SettingsPage::DnsSave_Click(Windows::Foundation::IInspectable const&,
+        RoutedEventArgs const&)
+    {
+        SaveDns(ParseServerList(DnsCustomBox().Text()), Ipv6Toggle().IsOn());
+    }
+
+    void SettingsPage::Ipv6Toggle_Toggled(Windows::Foundation::IInspectable const&,
+        RoutedEventArgs const&)
+    {
+        if (m_suppressDns)
+            return;
+        // Custom servers come from the edit box; presets from the combo.
+        auto servers = ParseServerList(DnsCustomBox().Text());
+        if (PresetForServers(m_dnsConfig.servers) != L"custom")
+            servers = m_dnsConfig.servers;
+        SaveDns(servers, Ipv6Toggle().IsOn());
     }
 
     void SettingsPage::CheckUpdate_Click(Windows::Foundation::IInspectable const&,
@@ -354,6 +536,14 @@ namespace winrt::OpenRung::WinUI::implementation
         AutoClearCheck().Content(box_value(winrt::hstring(I18n::Tr(L"settings.autoClear"))));
         ClearProxyButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.clearNow"))));
         LanguageHeader().Text(I18n::Tr(L"settings.language"));
+        DnsHeader().Text(I18n::Tr(L"settings.dns"));
+        DnsDesc().Text(I18n::Tr(L"settings.dnsDesc"));
+        DnsIpv6Desc().Text(I18n::Tr(L"settings.dnsIpv6Desc"));
+        DnsSaveButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.dnsSave"))));
+        DnsCustomBox().PlaceholderText(I18n::Tr(L"settings.dnsCustomPlaceholder"));
+        Ipv6Toggle().Header(box_value(winrt::hstring(I18n::Tr(L"settings.ipv6"))));
+        Ipv6Toggle().OnContent(box_value(winrt::hstring(I18n::Tr(L"settings.on"))));
+        Ipv6Toggle().OffContent(box_value(winrt::hstring(I18n::Tr(L"settings.off"))));
         CoreHeader().Text(I18n::Tr(L"settings.core"));
         CoreStartButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.coreStart"))));
         CoreStopButton().Content(box_value(winrt::hstring(I18n::Tr(L"settings.coreStop"))));
@@ -373,6 +563,10 @@ namespace winrt::OpenRung::WinUI::implementation
         langItems.GetAt(0).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.langSystem"))));
         langItems.GetAt(1).as<ComboBoxItem>().Content(box_value(winrt::hstring(L"简体中文")));
         langItems.GetAt(2).as<ComboBoxItem>().Content(box_value(winrt::hstring(L"English")));
+
+        auto dnsItems = DnsCombo().Items();
+        dnsItems.GetAt(0).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.dnsAuto"))));
+        dnsItems.GetAt(5).as<ComboBoxItem>().Content(box_value(winrt::hstring(I18n::Tr(L"settings.dnsCustom"))));
 
         RenderSystemProxy();
         RenderCoreManagerStatus();

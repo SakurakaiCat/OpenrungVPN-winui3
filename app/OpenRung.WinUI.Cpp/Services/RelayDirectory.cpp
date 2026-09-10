@@ -367,6 +367,37 @@ namespace Services
             RelayStore::Instance().SetSelectedId(best->id);
     }
 
+    bool RelayDirectory::SwitchToSelected()
+    {
+        auto const& state = AppState::Instance().Current();
+        // Only a live session switches; idle selection is a pure store update
+        // (the connect button uses it later), and a busy state means a
+        // connect is already under way — queuing another one would flash
+        // spurious "failed" states from the cancelled ladder.
+        if (state.status != L"connected")
+            return false;
+        auto selected = RelayStore::Instance().SelectedId();
+        if (selected.empty() || !state.connection || state.connection->relayId == selected)
+            return false;
+
+        std::thread([selected] {
+            try
+            {
+                auto& api = CoreSupervisor::Instance().Core().EnsureRunning(false);
+                AppLog::Write(L"switching relay: " + selected);
+                // Connect-while-connected IS the switch: the engine serializes
+                // with the live session (connectMu), tears it down fully, and
+                // dials the new relay.
+                api.Connect(L"", selected, L"");
+            }
+            catch (std::exception const& ex)
+            {
+                AppLog::Write(L"relay switch failed: " + Utf8ToWide(ex.what()));
+            }
+        }).detach();
+        return true;
+    }
+
     std::wstring RelayDirectory::DisplayTitleOf(RelayInfo const& relay)
     {
         return relay.label.empty() ? relay.id : relay.label;

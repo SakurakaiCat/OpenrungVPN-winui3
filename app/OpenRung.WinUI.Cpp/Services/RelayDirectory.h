@@ -72,6 +72,13 @@ namespace Services
         /// logged, never surfaced — the last good list stays visible.
         void StartAutoRefresh();
         void SelectLowestLatency(); // pick lowest-latency probed relay
+        /// Real-time server switching: with a session live, selecting a
+        /// different relay tears down the current tunnel and reconnects to
+        /// the new one (the engine serializes connect-while-connected).
+        /// Fire-and-forget on a worker thread; returns false when there is
+        /// nothing to do (idle, same relay, or no selection) so idle
+        /// selection stays a pure store update.
+        bool SwitchToSelected();
         /// Title helpers exposed for the home page card.
         std::wstring CountryName(RelayInfo const& relay);
         std::wstring DisplayTitleOf(RelayInfo const& relay); // computed lazily if absent

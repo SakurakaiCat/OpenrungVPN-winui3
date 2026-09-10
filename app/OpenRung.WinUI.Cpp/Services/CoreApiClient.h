@@ -31,6 +31,8 @@ namespace Services
         void Connect(std::wstring const& brokerUrl, std::wstring const& relayId, std::wstring const& country);
         void Disconnect();
         std::optional<std::wstring> SetMode(std::wstring const& mode); // echoed mode when provided
+        Services::DnsConfig GetDns();
+        void SetDns(std::vector<std::wstring> const& servers, bool ipv6);
         void Heartbeat();
         void Shutdown();
         void ClearSystemProxy();

@@ -80,6 +80,35 @@ Body: `{"mode":"proxy"|"tun"}`.
 - `428 {...,"code":"elevation_required"}` when mode=tun and the core is not elevated (Windows).
 The mode persists across core restarts (settings.json in the openrung config dir).
 
+### GET+POST /api/dns
+Tunnel DNS configuration: the resolver IP literals the config's DNS block emits
+and the IPv6 switch. Both take effect on the next connect.
+
+`GET → 200 {"servers":["1.1.1.1"],"ipv6":true}` — `servers` is the configured
+list, `[]` meaning the defaults (1.1.1.1 / 8.8.8.8).
+
+`POST` body: `{"servers":["9.9.9.9"],"ipv6":false}` (both fields required;
+`servers` may be empty).
+- `200 {"ok":true,"servers":[...],"ipv6":true}`
+- `400` when `ipv6` is missing, a server is not an IP literal, or there are
+  more than 4 servers
+- `409 {"error":"disconnect before changing the tunnel DNS","code":"connected"}`
+  while a session is live
+
+With `ipv6:false` the TUN inbound carries IPv4 only (no v6 address, so no v6
+default route) and the DNS strategy pins to `ipv4_only`, so apps never learn
+AAAA addresses. Both settings persist across core restarts (settings.json:
+`dnsServers`, `dnsIPv6`).
+
+### POST /api/connect while connected (real-time switching)
+`POST /api/connect` with a `relayId` different from the live session's relay
+switches servers in place: the engine serializes under its connect mutex,
+tears down the current session fully (including the OS-proxy restore in proxy
+mode), and dials the new relay. The state stream shows
+`disconnecting → connecting → connected` with the new relay; a brief direct
+traffic gap during the teardown is expected. `relayId` equal to the live
+relay is also accepted and re-connects it.
+
 ### POST /api/proxy
 Body: `{"clear":true}` — disables the OS system proxy outright (manual proxy and
 PAC URL), for removing a pre-existing third-party proxy before taking over.

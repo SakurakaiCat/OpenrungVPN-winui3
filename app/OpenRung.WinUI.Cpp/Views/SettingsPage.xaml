@@ -61,6 +61,49 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
+            <TextBlock x:Name="DnsHeader" FontWeight="SemiBold" Text="DNS" />
+            <TextBlock
+                x:Name="DnsDesc"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap">
+                隧道内域名解析使用的 DNS 服务器；修改在下次连接时生效。
+            </TextBlock>
+            <ComboBox
+                x:Name="DnsCombo"
+                HorizontalAlignment="Left"
+                SelectionChanged="DnsCombo_SelectionChanged">
+                <ComboBoxItem Content="自动（1.1.1.1 / 8.8.8.8）" Tag="auto" />
+                <ComboBoxItem Content="Cloudflare" Tag="cloudflare" />
+                <ComboBoxItem Content="Google" Tag="google" />
+                <ComboBoxItem Content="AliDNS" Tag="alidns" />
+                <ComboBoxItem Content="Quad9" Tag="quad9" />
+                <ComboBoxItem Content="自定义" Tag="custom" />
+            </ComboBox>
+            <StackPanel Orientation="Horizontal" Spacing="8" Visibility="Collapsed" x:Name="DnsCustomPanel">
+                <TextBox
+                    x:Name="DnsCustomBox"
+                    MinWidth="280"
+                    PlaceholderText="1.1.1.1, 8.8.8.8, 2606:4700:4700::1111" />
+                <Button
+                    x:Name="DnsSaveButton"
+                    Click="DnsSave_Click"
+                    Content="保存" />
+            </StackPanel>
+            <ToggleSwitch
+                x:Name="Ipv6Toggle"
+                HorizontalAlignment="Left"
+                Margin="0,4,0,0"
+                Toggled="Ipv6Toggle_Toggled" />
+            <TextBlock
+                x:Name="DnsIpv6Desc"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap" />
+            <TextBlock x:Name="DnsStatusText" Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
             <TextBlock x:Name="CoreHeader" FontWeight="SemiBold" Text="核心" />
             <TextBlock x:Name="CoreVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
             <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" />

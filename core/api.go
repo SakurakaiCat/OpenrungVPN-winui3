@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/openrung/openrung/brokerapi"
@@ -33,6 +35,7 @@ func (c *core) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/connect", c.handleConnect)
 	mux.HandleFunc("/api/disconnect", c.handleDisconnect)
 	mux.HandleFunc("/api/mode", c.handleMode)
+	mux.HandleFunc("/api/dns", c.handleDns)
 	mux.HandleFunc("/api/proxy", c.handleProxy)
 	mux.HandleFunc("/api/relays", c.handleRelays)
 	mux.HandleFunc("/api/tcping", c.handleTcping)
@@ -345,9 +348,10 @@ func (c *core) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 
 // ---- POST /api/mode --------------------------------------------------------
 
-// modePath keeps the capture mode across core restarts. It lives next to the
-// client state the engine persists (os.UserConfigDir()/openrung) as
-// settings.json, per the contract. Written best-effort.
+// modePath keeps the capture mode and DNS settings across core restarts. It
+// lives next to the client state the engine persists
+// (os.UserConfigDir()/openrung) as settings.json, per the contract. Written
+// best-effort.
 func modePath() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -356,30 +360,38 @@ func modePath() (string, error) {
 	return filepath.Join(base, "openrung", "settings.json"), nil
 }
 
-func (c *core) restoreMode() {
+// persistedSettings is the settings.json shape. All fields optional: a
+// pre-DNS file carries only "mode".
+type persistedSettings struct {
+	Mode       string   `json:"mode,omitempty"`
+	DNSServers []string `json:"dnsServers,omitempty"`
+	// DNSIPv6 is a pointer so a restored "false" survives round-trips; nil
+	// (absent) means the default, IPv6 enabled.
+	DNSIPv6 *bool `json:"dnsIPv6,omitempty"`
+}
+
+// settingsMu serializes settings.json read-modify-write cycles: API handlers
+// run concurrently (heartbeats, SSE, POSTs from the UI), and a mode write
+// racing a DNS write would drop the other half.
+var settingsMu sync.Mutex
+
+func loadSettings() persistedSettings {
 	path, err := modePath()
 	if err != nil {
-		return
+		return persistedSettings{}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return persistedSettings{}
 	}
-	var settings struct {
-		Mode string `json:"mode"`
-	}
+	var settings persistedSettings
 	if json.Unmarshal(data, &settings) != nil {
-		return
+		return persistedSettings{}
 	}
-	if settings.Mode == "tun" {
-		// Apply even unelevated: the state advertises it and connect
-		// refuses with 428, letting the UI offer the elevated restart
-		// without a separate mode call first.
-		_ = c.engine.SetMode(connectcore.ModeTUN)
-	}
+	return settings
 }
 
-func persistMode(mode string) {
+func saveSettings(settings persistedSettings) {
 	path, err := modePath()
 	if err != nil {
 		return
@@ -387,7 +399,7 @@ func persistMode(mode string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	data, err := json.Marshal(map[string]string{"mode": mode})
+	data, err := json.Marshal(settings)
 	if err != nil {
 		return
 	}
@@ -396,6 +408,25 @@ func persistMode(mode string) {
 		return
 	}
 	_ = os.Rename(tmp, path)
+}
+
+func (c *core) restoreMode() {
+	settingsMu.Lock()
+	settings := loadSettings()
+	settingsMu.Unlock()
+	if settings.Mode == "tun" {
+		// Apply even unelevated: the state advertises it and connect
+		// refuses with 428, letting the UI offer the elevated restart
+		// without a separate mode call first.
+		_ = c.engine.SetMode(connectcore.ModeTUN)
+	}
+	ipv6 := true
+	if settings.DNSIPv6 != nil {
+		ipv6 = *settings.DNSIPv6
+	}
+	if err := c.engine.SetTunnelDNS(settings.DNSServers, ipv6); err != nil {
+		c.apiLog("restoreMode: stored DNS config rejected: %v", err)
+	}
 }
 
 func (c *core) handleMode(w http.ResponseWriter, r *http.Request) {
@@ -435,9 +466,67 @@ func (c *core) handleMode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "connected", err.Error())
 		return
 	}
-	persistMode(mode.String())
+	settingsMu.Lock()
+	settings := loadSettings()
+	settings.Mode = mode.String()
+	saveSettings(settings)
+	settingsMu.Unlock()
 	c.apiLog("POST /api/mode: mode=%s (persisted)", mode)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": mode.String()})
+}
+
+// ---- GET+POST /api/dns ------------------------------------------------------
+
+// handleDns reads and writes the tunnel DNS configuration: the resolver IP
+// literals the DNS block emits (empty = the defaults 1.1.1.1/8.8.8.8) and the
+// IPv6 switch (the TUN inbound's v6 address + an ipv4_only DNS strategy; see
+// Engine.SetTunnelDNS). Changes take effect on the next connect, so POST is
+// refused with 409 while a session is live — the same contract as /api/mode.
+func (c *core) handleDns(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		servers, ipv6 := c.engine.TunnelDNS()
+		if servers == nil {
+			servers = []string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"servers": servers, "ipv6": ipv6})
+		return
+	}
+	if !methodOnly(w, r, http.MethodPost) {
+		return
+	}
+	var body struct {
+		Servers []string `json:"servers"`
+		IPv6    *bool    `json:"ipv6"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "", "invalid dns body: "+err.Error())
+		return
+	}
+	if body.IPv6 == nil {
+		writeError(w, http.StatusBadRequest, "", "ipv6 must be true or false")
+		return
+	}
+
+	if err := c.engine.SetTunnelDNS(body.Servers, *body.IPv6); err != nil {
+		if strings.Contains(err.Error(), "disconnect before") {
+			c.apiLog("POST /api/dns refused 409: %v", err)
+			writeError(w, http.StatusConflict, "connected", err.Error())
+			return
+		}
+		c.apiLog("POST /api/dns refused 400: %v", err)
+		writeError(w, http.StatusBadRequest, "", err.Error())
+		return
+	}
+
+	settingsMu.Lock()
+	settings := loadSettings()
+	settings.DNSServers = body.Servers
+	settings.DNSIPv6 = body.IPv6
+	saveSettings(settings)
+	settingsMu.Unlock()
+
+	c.apiLog("POST /api/dns: servers=%d ipv6=%t (persisted)", len(body.Servers), *body.IPv6)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "servers": body.Servers, "ipv6": *body.IPv6})
 }
 
 // ---- POST /api/proxy --------------------------------------------------------

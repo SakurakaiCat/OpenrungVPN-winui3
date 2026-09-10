@@ -292,3 +292,64 @@ func TestBuildSingBoxConfigRejectsUDP443Last(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildSingBoxConfigIPv6DisabledAndDNSStrategy(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	cfg, err := BuildSingBoxConfig(SingBoxConfigInput{
+		Relay:        validRelay(now),
+		DNSServers:   []string{"9.9.9.9", "149.112.112.112"},
+		DNSStrategy:  "ipv4_only",
+		IPv6Disabled: true,
+	})
+	if err != nil {
+		t.Fatalf("build sing-box config: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(cfg, &decoded); err != nil {
+		t.Fatalf("config should be valid JSON: %v", err)
+	}
+
+	dns := decoded["dns"].(map[string]any)
+	if dns["strategy"] != "ipv4_only" {
+		t.Fatalf("expected dns.strategy ipv4_only, got %+v", dns["strategy"])
+	}
+	servers := dns["servers"].([]any)
+	first := servers[0].(map[string]any)
+	if first["server"] != "9.9.9.9" {
+		t.Fatalf("expected custom DNS server 9.9.9.9, got %+v", first["server"])
+	}
+}
+
+func TestBuildSingBoxConfigKeepsIPv6AddressByDefault(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	cfg, err := BuildSingBoxConfig(SingBoxConfigInput{Relay: validRelay(now)})
+	if err != nil {
+		t.Fatalf("build sing-box config: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(cfg, &decoded); err != nil {
+		t.Fatalf("config should be valid JSON: %v", err)
+	}
+
+	dns := decoded["dns"].(map[string]any)
+	if _, present := dns["strategy"]; present {
+		t.Fatalf("default config must not emit dns.strategy, got %+v", dns["strategy"])
+	}
+	tun := decoded["inbounds"].([]any)[0].(map[string]any)
+	addresses := tun["address"].([]any)
+	if len(addresses) != 2 || addresses[1] != DefaultTunnelIPv6Address {
+		t.Fatalf("default config must keep the v6 TUN address, got %+v", addresses)
+	}
+}
+
+func TestBuildSingBoxConfigRejectsInvalidDNSStrategy(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	if _, err := BuildSingBoxConfig(SingBoxConfigInput{
+		Relay:       validRelay(now),
+		DNSStrategy: "bogus",
+	}); err == nil {
+		t.Fatal("expected an invalid DNS strategy to be rejected")
+	}
+}
