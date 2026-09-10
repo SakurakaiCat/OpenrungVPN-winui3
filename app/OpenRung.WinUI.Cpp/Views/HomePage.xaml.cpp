@@ -209,6 +209,10 @@ namespace winrt::OpenRung::WinUI::implementation
         if (StateUi::IsBusy(state) || m_pendingSince)
             return;
 
+        // A click is the user taking over: any running failover ladder stops
+        // here and this click's outcome belongs to the user alone.
+        Services::RelayDirectory::CancelFailover(I18n::Tr(L"failover.reasonUser"));
+
         auto connected = StateUi::IsConnected(state);
         auto selectedId = Services::RelayStore::Instance().SelectedId();
 

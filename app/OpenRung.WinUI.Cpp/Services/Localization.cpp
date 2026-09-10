@@ -174,6 +174,17 @@ namespace Services
             {L"log.relayUpdateDone", L"从远端更新节点完成:{0} 个节点", L"Remote node update finished: {0} nodes"},
             {L"log.relayUpdateFailed", L"从远端更新节点失败:", L"Remote node update failed: "},
             {L"log.cnRelaysHidden", L"已隐藏 {0} 个中国大陆节点（设置中可关闭）", L"Hidden {0} mainland China node(s); toggle in Settings"},
+            {L"log.failoverStart", L"连接失败，自动尝试其他 {0} 个节点…", L"Connect failed; automatically trying {0} other node(s)…"},
+            {L"log.failoverAttempt", L"自动重试 {0}/{1}：{2}", L"Failover {0}/{1}: {2}"},
+            {L"log.failoverSuccess", L"自动重试成功：已连接 {0}", L"Failover succeeded: connected to {0}"},
+            {L"log.failoverStopped", L"自动重试停止（此错误换节点无法解决）:", L"Failover stopped (another relay cannot fix this):"},
+            {L"log.failoverExhausted", L"自动重试结束：{0} 个候选节点均连接失败", L"Failover finished: all {0} candidate node(s) failed"},
+            {L"log.failoverCancelled", L"自动重试已取消（{0}）", L"Failover cancelled ({0})"},
+            {L"failover.reasonUser", L"用户操作", L"user action"},
+            {L"failover.reasonBusy", L"引擎忙，无法继续", L"engine busy"},
+            {L"failover.reasonCoreStop", L"核心停止", L"core stopping"},
+            {L"relay.failoverExhausted", L"连接失败：{0} 个候选节点均无法连通，请稍后重试或从列表选择其他节点。",
+             L"Connect failed: none of the {0} candidate node(s) were reachable. Try again later or pick another node."},
 
             // settings status lines
             {L"status.checking", L"正在检查更新…", L"Checking for updates…"},
