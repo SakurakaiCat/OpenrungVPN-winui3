@@ -29,8 +29,9 @@ func (c BrokerClient) RequestWSSSessionTicket(
 		SessionID: sessionID,
 	}
 	return brokerapi.NewClient(c.HTTPClient, brokerapi.Options{
-		AppVersion: AppVersion(),
-		Platform:   c.Platform,
+		AppVersion:      c.appVersion(),
+		PlatformVersion: c.PlatformVersion,
+		Platform:        c.Platform,
 	}).RequestWSSTicket(ctx, c.BaseURL, ticketRequest)
 }
 

@@ -196,10 +196,10 @@ func TestGeoLabelPrefersCityCountry(t *testing.T) {
 }
 
 func TestRecentFromRequiresCountryCode(t *testing.T) {
-	if recentFrom(usableRelay("a", "", "", "")) != nil {
+	if recentFrom(usableRelay("a", "", "", ""), false) != nil {
 		t.Fatal("relay without country code should yield no recent")
 	}
-	r := recentFrom(usableRelay("a", "jp", "Tokyo", "Japan"))
+	r := recentFrom(usableRelay("a", "jp", "Tokyo", "Japan"), false)
 	if r == nil || r.CountryCode != "JP" || r.Label != "Tokyo, Japan" {
 		t.Fatalf("unexpected recent: %+v", r)
 	}
@@ -338,7 +338,7 @@ func TestMarkConnectedSetsLabelAndRecent(t *testing.T) {
 	s := New()
 	s.Sink = sink
 
-	recent := recentFrom(usableRelay("a", "JP", "Tokyo", "Japan"))
+	recent := recentFrom(usableRelay("a", "JP", "Tokyo", "Japan"), false)
 	s.markConnected("Tokyo, Japan", recent)
 
 	last := sink.last()

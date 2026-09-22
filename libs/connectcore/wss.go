@@ -15,7 +15,6 @@ import (
 
 	"github.com/openrung/openrung/connectcore/client"
 	"github.com/openrung/openrung/connectcore/clienttelemetry"
-	"github.com/openrung/openrung/connectcore/proxyconfig"
 )
 
 const (
@@ -161,9 +160,11 @@ func (s *Engine) wssTicketRequester() func(context.Context, string, brokerapi.WS
 	}
 	return func(ctx context.Context, brokerURL string, request brokerapi.WSSTicketRequest, clientID, sessionID string) (brokerapi.WSSTicketResponse, error) {
 		brokerClient := client.BrokerClient{
-			BaseURL:    brokerURL,
-			HTTPClient: s.brokerHTTPClient(),
-			Platform:   s.telemetryPlatform(),
+			BaseURL:         brokerURL,
+			HTTPClient:      s.brokerHTTPClient(),
+			Platform:        s.telemetryPlatform(),
+			AppVersion:      s.appVersion(),
+			PlatformVersion: s.platformVersion(),
 		}
 		return brokerClient.RequestWSSSessionTicket(ctx, request, clientID, sessionID)
 	}
@@ -344,6 +345,14 @@ func (s *Engine) attemptWSSCandidate(
 	// Captured before the ticket request and the bridge dial: the WSS outer
 	// socket belongs to epochs at or after this point (candidateResult.netEpoch).
 	attemptEpoch := s.networkEpoch()
+	configInput := s.candidateConfigInput(candidate, proxyPort)
+	if s.Mobile != nil {
+		var err error
+		configInput, err = s.mobileConfig(ctx, configInput)
+		if err != nil {
+			return nil, markLocalCandidateError("config", err)
+		}
+	}
 	candidateCtx, cancel := context.WithCancel(ctx)
 	ticket, err := s.requestWSSSessionTicket(candidateCtx, conn, brokerapi.WSSTicketRequest{
 		RelayID: candidate.ID,
@@ -390,11 +399,11 @@ func (s *Engine) attemptWSSCandidate(
 	}
 	go serveWSS(result, serveCtx, bridge)
 	s.appendLog(fmt.Sprintf("connected through WSS front %s", front.ID))
-	return s.startCandidate(result, client.SingBoxConfigInput{
-		Relay: candidate, Mode: client.ModeProxy,
-		ProxyListenAddress: proxyconfig.Host, ProxyListenPort: proxyPort,
-		BridgeHost: ip.String(), BridgePort: port,
-	})
+	configInput.BridgeHost, configInput.BridgePort = ip.String(), port
+	if s.Mobile != nil {
+		result.reporter = &RunTelemetry{manager: conn.mgr, relayID: candidate.ID}
+	}
+	return s.startCandidate(result, configInput)
 }
 
 func serveWSS(result *candidateResult, ctx context.Context, bridge wssBridge) {

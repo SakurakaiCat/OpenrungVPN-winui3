@@ -26,8 +26,9 @@ import (
 //   - Failure exemption: Android actively probes the physical network and
 //     exempts an adapter loss only when the probe fails; iOS passively reads
 //     the last NWPath snapshot. The engine follows Android: its
-//     network-alive gate IS an active probe of the broker fronts (see
-//     supervise's punch handling).
+//     network-alive gate probes neutral HTTPS or broker fronts on mobile,
+//     skipping I/O on observed down paths. Budget expiry allows recovery but
+//     never counts as liveness for this circuit breaker.
 //   - iOS additionally exempts network-epoch-triggered punch recoveries;
 //     the engine has no epoch-triggered punch retirement at all (an epoch
 //     kicks an immediate health sweep and the probe decides), so the

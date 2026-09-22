@@ -79,7 +79,7 @@ require (
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/openai/openai-go/v3 v3.26.0 // indirect
-	github.com/openrung/openrung/brokerapi v0.6.0 // indirect
+	github.com/openrung/openrung/brokerapi v0.7.0 // indirect
 	github.com/openrung/openrung/punchcore v0.1.0 // indirect
 	github.com/openrung/openrung/wsscore v0.7.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
