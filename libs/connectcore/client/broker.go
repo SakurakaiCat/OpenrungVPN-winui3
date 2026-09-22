@@ -11,9 +11,11 @@ import (
 )
 
 type BrokerClient struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Platform   brokerapi.Platform
+	AppVersion      string
+	PlatformVersion string
+	BaseURL         string
+	HTTPClient      *http.Client
+	Platform        brokerapi.Platform
 }
 
 // ListRelays fetches relay candidates from the broker. When clientID and
@@ -23,8 +25,9 @@ type BrokerClient struct {
 // adapter decodes them into the application's relay model.
 func (c BrokerClient) ListRelays(ctx context.Context, limit int, clientID, sessionID string) (brokerapi.RelayListResponse, error) {
 	list, err := brokerapi.NewClient(c.HTTPClient, brokerapi.Options{
-		AppVersion: AppVersion(),
-		Platform:   c.Platform,
+		AppVersion:      c.appVersion(),
+		PlatformVersion: c.PlatformVersion,
+		Platform:        c.Platform,
 	}).ListRelays(ctx, c.BaseURL, brokerapi.ListOptions{
 		Limit: limit,
 		Identity: brokerapi.Identity{
@@ -64,3 +67,10 @@ func EnforceSecureBrokerURL(baseURL string) (*url.URL, error) {
 // BrokerStatusError remains as a compatibility alias for callers that classify
 // broker errors by HTTP status.
 type BrokerStatusError = brokerapi.BrokerStatusError
+
+func (c BrokerClient) appVersion() string {
+	if c.AppVersion != "" {
+		return c.AppVersion
+	}
+	return AppVersion()
+}

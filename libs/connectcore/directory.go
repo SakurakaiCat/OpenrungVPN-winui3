@@ -113,16 +113,18 @@ func (s *Engine) identityForDirectory() discovery.Options {
 	s.mu.Lock()
 	sessionID := s.sessionID
 	s.mu.Unlock()
-	id, err := clientID()
+	id, err := s.InstallID()
 	if err != nil {
 		id = ""
 	}
 	return discovery.Options{
-		Limit:      DirectoryRelayLimit,
-		ClientID:   id,
-		SessionID:  sessionID,
-		Platform:   s.telemetryPlatform(),
-		HTTPClient: s.brokerHTTPClient(),
+		Limit:           DirectoryRelayLimit,
+		ClientID:        id,
+		SessionID:       sessionID,
+		Platform:        s.telemetryPlatform(),
+		AppVersion:      s.appVersion(),
+		PlatformVersion: s.platformVersion(),
+		HTTPClient:      s.brokerHTTPClient(),
 	}
 }
 

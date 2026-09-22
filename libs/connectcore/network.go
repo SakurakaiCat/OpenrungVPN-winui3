@@ -32,17 +32,16 @@ package connectcore
 //     signal accelerates the engine's probing, it never replaces it.)
 //   - During recovery, a signal wakes the network-outage gate immediately
 //     instead of waiting out its poll interval (iOS waitUntilSatisfied's
-//     event-driven wait). The dial probe remains the authority on "alive":
-//     a stale down-signal can therefore never wedge recovery. (Second
-//     recorded difference: iOS additionally exempts adapter losses from its
-//     circuit breaker while the path is unsatisfied; the engine's equivalent
-//     gate stays probe-driven.)
+//     event-driven wait). Mobile down signals suppress physical probes, and
+//     a bounded wait lets the ladder run even if a down signal becomes stale.
+//     The punch circuit breaker also exempts losses while this physical gate
+//     reports down.
 
 // NetworkState is one platform observation of the host's physical
 // (non-tunnel) network.
 type NetworkState struct {
 	// Up reports whether any internet-capable physical network exists right
-	// now (Android: a non-VPN network with validated internet capability;
+	// now (Android: a non-VPN network with INTERNET capability;
 	// iOS: NWPath satisfied).
 	Up bool
 	// Fingerprint identifies the physical path set — interfaces, addresses,
@@ -103,4 +102,12 @@ func (s *Engine) networkEpoch() uint64 {
 	s.netMu.Lock()
 	defer s.netMu.Unlock()
 	return s.netEpoch
+}
+
+// Only an observed mobile down state suppresses probes. Before the first
+// platform observation (and on desktop), the probe remains authoritative.
+func (s *Engine) physicalNetworkKnownDown() bool {
+	s.netMu.Lock()
+	defer s.netMu.Unlock()
+	return s.netBaselined && !s.netLast.Up
 }

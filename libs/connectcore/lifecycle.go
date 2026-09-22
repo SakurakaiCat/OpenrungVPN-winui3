@@ -36,12 +36,15 @@ func (s *Engine) Pause() {
 // Resume lifts Pause. Anything the pause held is handled immediately — a due
 // health sweep runs right away, a failover trigger or network epoch received
 // mid-pause starts its recovery now — matching the mobile monitors' wake
-// semantics: device wake only resumes the engine, recovery policy stays in
-// the engine. Idempotent.
+// semantics. A real resume renews the mobile recovery budget so suspension
+// cannot consume its outage allowance. Idempotent calls do not renew it.
 func (s *Engine) Resume() {
 	s.pauseMu.Lock()
 	resumed := s.resumedCh
 	s.resumedCh = nil
+	if resumed != nil {
+		s.resumeEpoch++
+	}
 	s.pauseMu.Unlock()
 	if resumed != nil {
 		close(resumed)
@@ -117,4 +120,10 @@ func (s *Engine) Shutdown(flushBudget time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return conn.flushErr
+}
+
+func (s *Engine) currentResumeEpoch() uint64 {
+	s.pauseMu.Lock()
+	defer s.pauseMu.Unlock()
+	return s.resumeEpoch
 }

@@ -21,6 +21,7 @@ import (
 // Fetch is a successful relay fetch together with the endpoint that served it,
 // so the caller can pin later requests (telemetry, connect) to the same broker.
 type Fetch struct {
+	AzureSNI  bool
 	BrokerURL string
 	Response  brokerapi.RelayListResponse
 }
@@ -32,9 +33,11 @@ type RateLimitedError = brokerapi.RateLimitedError
 // both set they are sent as identity headers so the broker records a
 // client_seen telemetry event for the request.
 type Options struct {
-	Limit     int
-	ClientID  string
-	SessionID string
+	AppVersion      string
+	PlatformVersion string
+	Limit           int
+	ClientID        string
+	SessionID       string
 	// Platform selects the brokerapi platform-identification header. Empty
 	// means PlatformDesktop: the desktop app predates this field and its wire
 	// behavior must stay unchanged.
@@ -62,8 +65,9 @@ func (o Options) platform() brokerapi.Platform {
 // its exact JSON bytes for decoding into the desktop-owned relay model.
 func ListRelays(ctx context.Context, brokerURL string, opts Options) (brokerapi.RelayListResponse, error) {
 	list, err := brokerapi.NewClient(opts.HTTPClient, brokerapi.Options{
-		AppVersion: client.AppVersion(),
-		Platform:   opts.platform(),
+		AppVersion:      opts.appVersion(),
+		PlatformVersion: opts.PlatformVersion,
+		Platform:        opts.platform(),
 	}).ListRelays(ctx, brokerURL, brokerapi.ListOptions{
 		Limit: opts.Limit,
 		Identity: brokerapi.Identity{
@@ -107,8 +111,9 @@ func ListRelays(ctx context.Context, brokerURL string, opts Options) (brokerapi.
 // mid-race, which still surfaces the cancellation.
 func FirstReachable(ctx context.Context, candidates brokerapi.Candidates, opts Options) (Fetch, error) {
 	fetch, err := brokerapi.NewClient(opts.HTTPClient, brokerapi.Options{
-		AppVersion: client.AppVersion(),
-		Platform:   opts.platform(),
+		AppVersion:      opts.appVersion(),
+		PlatformVersion: opts.PlatformVersion,
+		Platform:        opts.platform(),
 	}).FirstReachable(ctx, candidates, brokerapi.ListOptions{
 		Limit: opts.Limit,
 		Identity: brokerapi.Identity{
@@ -124,7 +129,7 @@ func FirstReachable(ctx context.Context, candidates brokerapi.Candidates, opts O
 	if err != nil {
 		return Fetch{}, err
 	}
-	return Fetch{BrokerURL: fetch.BrokerURL, Response: response}, nil
+	return Fetch{BrokerURL: fetch.BrokerURL, Response: response, AzureSNI: fetch.AzureSNI}, nil
 }
 
 func decodeRelayList(body []byte) (brokerapi.RelayListResponse, error) {
@@ -133,4 +138,11 @@ func decodeRelayList(body []byte) (brokerapi.RelayListResponse, error) {
 		return brokerapi.RelayListResponse{}, fmt.Errorf("decode verified relay list: %w", err)
 	}
 	return response, nil
+}
+
+func (o Options) appVersion() string {
+	if o.AppVersion != "" {
+		return o.AppVersion
+	}
+	return client.AppVersion()
 }

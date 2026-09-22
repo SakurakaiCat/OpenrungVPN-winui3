@@ -23,12 +23,16 @@ func (s *Engine) newManager(brokerURL string) *clienttelemetry.Manager {
 		brokerURL = TelemetryBrokerURL
 	}
 	platform := s.telemetryPlatform()
-	mgr, err := clienttelemetry.NewWithPlatform(
-		brokerURL,
-		client.AppVersion(),
-		platform,
-		s.brokerHTTPClient(),
-	)
+	var mgr *clienttelemetry.Manager
+	var err error
+	if s.Mobile != nil {
+		mgr, err = clienttelemetry.NewWithIdentity(brokerURL, s.appVersion(), platform, s.platformVersion(), s.Mobile.InstallID, s.brokerHTTPClient())
+		if mgr != nil {
+			mgr.SetHostAttributes(s.mobileAttributes)
+		}
+	} else {
+		mgr, err = clienttelemetry.NewWithPlatform(brokerURL, s.appVersion(), platform, s.brokerHTTPClient())
+	}
 	if err != nil {
 		return nil
 	}
@@ -53,6 +57,9 @@ const telemetryOutboxFileName = "openrung-telemetry-outbox.jsonl"
 // engine's lifetime. Nil when the host set no directory or the open failed —
 // telemetry then stays on the in-memory queue, and must never fail a connect.
 func (s *Engine) telemetryOutbox() *clienttelemetry.Outbox {
+	if s.Mobile != nil {
+		return s.Mobile.Outbox
+	}
 	if s.TelemetryOutboxDirectory == "" {
 		return nil
 	}
@@ -294,6 +301,8 @@ func writeTempConfig(data []byte) (string, error) {
 
 // geoLabel is the user-facing relay label: "City, Country", else country, else
 // the relay's friendly label. It never returns a raw IP (contract §3).
+// Desktop intentionally ignores city-only geo; mobileLocationLabel instead
+// retains that city and never substitutes an operator name or relay ID.
 func geoLabel(r brokerapi.RelayDescriptor) string {
 	city := strings.TrimSpace(r.City)
 	country := strings.TrimSpace(r.Country)
@@ -311,17 +320,22 @@ func geoLabel(r brokerapi.RelayDescriptor) string {
 
 // recentFrom builds a RecentNode from a relay's broker-served geo. Returns nil
 // when the relay has no country code (nothing tap-to-connect could target).
-func recentFrom(r brokerapi.RelayDescriptor) *RecentNode {
+func recentFrom(r brokerapi.RelayDescriptor, mobile bool) *RecentNode {
 	cc := strings.ToUpper(strings.TrimSpace(r.CountryCode))
 	if cc == "" {
 		return nil
 	}
-	return &RecentNode{
+	node := &RecentNode{
 		CountryCode: cc,
 		Label:       geoLabel(r),
 		Latitude:    r.Latitude,
 		Longitude:   r.Longitude,
 	}
+	if mobile {
+		node.Label = mobileLocationLabel(r)
+		node.RelayID, node.RelayName = r.ID, relayName(r)
+	}
+	return node
 }
 
 // persistPrepend adds node to the front of recents (deduped, capped) and writes
@@ -334,14 +348,20 @@ func (s *Engine) persistPrepend(existing []RecentNode, node RecentNode) []Recent
 	return recents
 }
 
-// prependRecent inserts node at the front, de-duplicated by countryCode, capped
-// at max (matching the contract's cap-8 newest-first recents). It returns the
-// new list so the caller can mirror it into state.
+// prependRecent inserts node at the front, capped at max. Pinned mobile entries
+// replace the same relay or a legacy entry for that country. Unpinned desktop
+// entries retain country deduplication. The caller mirrors the result into state.
 func prependRecent(existing []RecentNode, node RecentNode, max int) []RecentNode {
 	out := make([]RecentNode, 0, len(existing)+1)
 	out = append(out, node)
 	for _, r := range existing {
-		if r.CountryCode == node.CountryCode {
+		replaced := r.CountryCode == node.CountryCode
+		if node.RelayID != "" {
+			sameRelay := r.RelayID == node.RelayID
+			legacyCountry := r.RelayID == "" && r.CountryCode == node.CountryCode
+			replaced = sameRelay || legacyCountry
+		}
+		if replaced {
 			continue
 		}
 		out = append(out, r)

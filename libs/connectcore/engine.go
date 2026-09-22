@@ -53,6 +53,8 @@ const (
 // RecentNode mirrors the contract's RecentNode (openrung-mobile-app
 // src/native/types.ts): a recently used exit location.
 type RecentNode struct {
+	RelayID     string `json:",omitempty"`
+	RelayName   string `json:",omitempty"`
 	CountryCode string
 	Label       string
 	Latitude    float64
@@ -63,6 +65,8 @@ type RecentNode struct {
 // the contract's NativeVpnState minus the log lines, whose ring buffering and
 // coalescing belong to the platform sink.
 type State struct {
+	// Details is an atomic, credential-free snapshot; callbacks need not reenter Engine.
+	Details    *StateDetails `json:",omitempty"`
 	Status     Status
 	RelayLabel *string
 	LastError  *string
@@ -89,6 +93,7 @@ const PlatformCLI = brokerapi.Platform("cli")
 
 // coreState is the mutable slice of State the engine owns directly.
 type coreState struct {
+	details    *StateDetails
 	status     Status
 	relayLabel *string
 	lastError  *string
@@ -130,10 +135,15 @@ type connection struct {
 	// heartbeatOnce starts the telemetry heartbeat loop at most once per
 	// session, however many times a recovery re-ladder promotes a new relay.
 	heartbeatOnce sync.Once
+	heartbeatDone chan struct{}
 	// netNotify wakes the session's supervisor (or its recovery gate) when
 	// the platform network tracker crosses an epoch boundary; capacity one,
 	// coalesced — the epoch counter carries what the wake cannot.
 	netNotify chan struct{}
+	// discoveryPrimary is the configured primary, retained even if a fallback
+	// wins. Written in connectFlow and read in reladder; touched only by the
+	// runConnect goroutine, not protected by mu.
+	discoveryPrimary string
 	// handledNetEpoch is the network epoch the supervisor has accounted for.
 	// Touched only by the runConnect goroutine.
 	handledNetEpoch uint64
@@ -165,11 +175,14 @@ type candidateResult struct {
 	// run is the live tunnel run from the TunnelRuntime seam; runDone is its
 	// single exit report (run.Done() captured once). stopGrace is the graceful
 	// budget teardown passes to run.Stop, pinned when the run starts.
-	run       TunnelRun
-	runDone   <-chan error
-	stopGrace time.Duration
-	torndown  bool
-	punch     *PunchPath // live punched path, nil when using the hub
+	healthDone <-chan struct{}
+	mobileRun  MobileTunnelRun
+	reporter   *RunTelemetry
+	run        TunnelRun
+	runDone    <-chan error
+	stopGrace  time.Duration
+	torndown   bool
+	punch      *PunchPath // live punched path, nil when using the hub
 
 	// The WSS adapter remains alive until the tunnel run has been stopped.
 	// Its separate context preserves that teardown order.
@@ -240,9 +253,13 @@ func (c *candidateResult) teardown() {
 	if c.cancel != nil {
 		c.cancel()
 	}
+	if c.healthDone != nil {
+		<-c.healthDone
+	}
 	if c.run != nil {
 		_ = c.run.Stop(c.stopGrace)
 	}
+	c.reporter.retire()
 	if c.punch != nil {
 		_ = c.punch.Close()
 	}
@@ -263,6 +280,9 @@ func (c *candidateResult) teardown() {
 // is the one setting a host may change later, through SetMode (see mode.go),
 // which the TUI's Settings toggle uses.
 type Engine struct {
+	// Mobile selects the supported mobile host contract; nil keeps desktop defaults.
+	Mobile *MobileHost
+
 	// Sink receives the engine's typed state and log events. A nil Sink drops
 	// them (headless drivers that only poll State).
 	Sink EventSink
@@ -397,8 +417,9 @@ type Engine struct {
 
 	// pauseMu guards resumedCh: nil while running, non-nil while paused
 	// (closed by Resume). See lifecycle.go.
-	pauseMu   sync.Mutex
-	resumedCh chan struct{}
+	pauseMu     sync.Mutex
+	resumedCh   chan struct{}
+	resumeEpoch uint64 // advances on an actual Resume; renews mobile outage budgets
 
 	// protectorMu guards the mid-life protector replacement and the
 	// host-supplied DNS servers (see SetSocketProtector / SetDNSServers) —
@@ -420,22 +441,24 @@ type Engine struct {
 	// platform-hook injection pattern above so ladder tests need no network,
 	// no broker, and no sing-box binary (the tunnel itself is faked through
 	// the exported TunnelRuntime seam).
-	probeTunnel        func(ctx context.Context, proxyPort int) (int64, error)
-	healthProbe        func(ctx context.Context, proxyPort int) error
-	dialRelay          func(ctx context.Context, host string, port int) (int64, error)
-	fetchRelays        func(ctx context.Context, brokerURL string, limit int, clientID, sessionID string) (discovery.Fetch, error)
-	tunnelReady        func(ctx context.Context, proxyPort int) error
-	requestWSSTicket   func(ctx context.Context, brokerURL string, request brokerapi.WSSTicketRequest, clientID, sessionID string) (brokerapi.WSSTicketResponse, error)
-	dialWSS            func(ctx context.Context, rawURL, ticket string) (wssBridge, error)
-	waitWSSRetry       func(ctx context.Context, delay time.Duration) error
-	checkNetworkAlive  func(ctx context.Context, fronts []string) bool
-	lookupGeo          func(ctx context.Context, httpClient *http.Client) map[string]string
-	healthTick         time.Duration      // 0 means HealthProbeInterval
-	heartbeatTick      time.Duration      // 0 means the randomized heartbeat cadence
-	wssTicketBudget    time.Duration      // 0 means wssTicketTotalDeadline
-	punchBreakerConfig punchBreakerConfig // zero means the mobile constants
-	networkRetryDelay  time.Duration      // 0 means networkRecoveryPollInterval
-	tunnelReadyLimit   time.Duration      // 0 means TunnelReadyTimeout
+	probeTunnel          func(ctx context.Context, proxyPort int) (int64, error)
+	healthProbe          func(ctx context.Context, proxyPort int) error
+	dialRelay            func(ctx context.Context, host string, port int) (int64, error)
+	fetchRelays          func(ctx context.Context, brokerURL string, limit int, clientID, sessionID string) (discovery.Fetch, error)
+	tunnelReady          func(ctx context.Context, proxyPort int) error
+	requestWSSTicket     func(ctx context.Context, brokerURL string, request brokerapi.WSSTicketRequest, clientID, sessionID string) (brokerapi.WSSTicketResponse, error)
+	dialWSS              func(ctx context.Context, rawURL, ticket string) (wssBridge, error)
+	waitWSSRetry         func(ctx context.Context, delay time.Duration) error
+	checkNetworkAlive    func(ctx context.Context, fronts []string) bool
+	lookupGeo            func(ctx context.Context, httpClient *http.Client) map[string]string
+	healthTick           time.Duration      // 0 means HealthProbeInterval
+	heartbeatTick        time.Duration      // 0 means the randomized heartbeat cadence
+	wssTicketBudget      time.Duration      // 0 means wssTicketTotalDeadline
+	punchBreakerConfig   punchBreakerConfig // zero means the mobile constants
+	networkRetryDelay    time.Duration      // 0 means networkRecoveryPollInterval
+	networkRecoveryLimit time.Duration      // 0 means mobileNetworkRecoveryLimit
+	physicalLivenessURLs []string           // nil means the fixed neutral mobile endpoints (per-engine test seam)
+	tunnelReadyLimit     time.Duration      // 0 means TunnelReadyTimeout
 }
 
 func (s *Engine) tunnelReadyProbe() func(context.Context, int) error {
@@ -505,11 +528,13 @@ func (s *Engine) relayFetcher() func(context.Context, string, int, string, strin
 	}
 	return func(ctx context.Context, brokerURL string, limit int, clientID, sessionID string) (discovery.Fetch, error) {
 		return discovery.FirstReachable(ctx, brokerapi.BrokerCandidates(brokerURL), discovery.Options{
-			Limit:      limit,
-			ClientID:   clientID,
-			SessionID:  sessionID,
-			Platform:   s.telemetryPlatform(),
-			HTTPClient: s.brokerHTTPClient(),
+			Limit:           limit,
+			ClientID:        clientID,
+			SessionID:       sessionID,
+			Platform:        s.telemetryPlatform(),
+			AppVersion:      s.appVersion(),
+			PlatformVersion: s.platformVersion(),
+			HTTPClient:      s.brokerHTTPClient(),
 		})
 	}
 }
@@ -689,6 +714,9 @@ const tunnelReadyPollInterval = 25 * time.Millisecond
 // report.
 func (s *Engine) awaitTunnelReady(ctx context.Context, res *candidateResult, port int) (int64, error) {
 	started := time.Now()
+	if res.mobileRun != nil {
+		return s.awaitMobileReady(ctx, res)
+	}
 	deadline := started.Add(s.readyLimit())
 	ticker := time.NewTicker(tunnelReadyPollInterval)
 	defer ticker.Stop()
@@ -753,22 +781,34 @@ func (s *Engine) runConnect(ctx context.Context, conn *connection, brokerURL str
 	// loop goroutine (bound to this ctx) never outlives the session.
 	defer conn.cancel()
 	stage, err := s.connectFlow(ctx, conn, brokerURL, target)
+	if s.Mobile != nil {
+		conn.cancel()
+		if conn.heartbeatDone != nil {
+			<-conn.heartbeatDone
+		}
+	}
 	s.finalizeConn(conn, stage, err)
 }
 
 // connectFlow runs the connect phases and returns ("", nil) on a clean end (a
 // user disconnect or shutdown, at any phase) or the terminal (stage, error).
 func (s *Engine) connectFlow(ctx context.Context, conn *connection, brokerURL string, target RelayTarget) (string, error) {
+	conn.discoveryPrimary = brokerURL
 	// OS consent while the state machine is still PREPARING, before a telemetry
 	// session exists: a refused elevation is a local precondition, not a
 	// connection attempt, and nothing has been dialed yet.
+	if err := s.validateMobile(); err != nil {
+		return "mobile_config", err
+	}
 	if ok, err := s.prepare(ctx); err != nil {
 		return "elevation", err
 	} else if !ok {
 		return "elevation", errors.New("TUN mode was not permitted")
 	}
 
-	s.setStatus(StatusConnecting, keepLabel, clearError)
+	if s.Mobile == nil {
+		s.setStatus(StatusConnecting, keepLabel, clearError)
+	}
 
 	mgr := s.newManager(brokerURL)
 	conn.mgr = mgr
@@ -782,6 +822,10 @@ func (s *Engine) connectFlow(ctx context.Context, conn *connection, brokerURL st
 		// Concurrent with the broker fetch and ranking; abandoned (never
 		// waited for) at the ladder and finalize boundaries below.
 		conn.geo = attachGeoAttributes(mgr, s.geoHTTPClient(), s.geoResolver())
+	}
+
+	if s.Mobile != nil {
+		s.setStatus(StatusConnecting, keepLabel, clearError)
 	}
 
 	// TUN mode binds no local port, so it neither resolves nor reserves the
@@ -857,10 +901,7 @@ func (s *Engine) connectFlow(ctx context.Context, conn *connection, brokerURL st
 // for targeted connects so the target is present (the default page may miss
 // it), like the mobile client. Returns the fetch duration for broker_fetch_ms.
 func (s *Engine) fetchCandidates(ctx context.Context, conn *connection, brokerURL string, target RelayTarget) (discovery.Fetch, int64, error) {
-	displayURL := strings.TrimSpace(brokerURL)
-	if displayURL == "" {
-		displayURL = DefaultBrokerURL
-	}
+	displayURL := brokerapi.BrokerCandidates(brokerURL).URLs[0]
 	s.appendLog(fmt.Sprintf("fetching relays from %s", displayURL))
 
 	limit := RelayLimit
@@ -872,6 +913,9 @@ func (s *Engine) fetchCandidates(ctx context.Context, conn *connection, brokerUR
 	if err != nil {
 		return discovery.Fetch{}, 0, err
 	}
+	// All hosts follow the verified winner, including queued events and
+	// recovery fetches. In-flight uploads retain their captured endpoint.
+	_ = conn.mgr.SetBrokerFront(fetch.BrokerURL, fetch.AzureSNI)
 	return fetch, time.Since(started).Milliseconds(), nil
 }
 
@@ -961,7 +1005,7 @@ func (s *Engine) attemptCandidate(ctx context.Context, conn *connection, cand br
 	if len(fronts) == 0 {
 		return nil, directErr
 	}
-	if s.tunMode() {
+	if s.tunMode() && s.Mobile == nil {
 		// The WSS bridge dials the CDN front from this process, and a full-device
 		// TUN captures that connection into the very tunnel the bridge carries —
 		// sing-box would route it back to the loopback bridge, which would dial
@@ -1011,6 +1055,14 @@ func (s *Engine) attemptDirectCandidate(ctx context.Context, conn *connection, c
 	// Captured before the first dial: every socket this candidate will hold
 	// belongs to epochs at or after this point (see candidateResult.netEpoch).
 	attemptEpoch := s.networkEpoch()
+	configInput := s.candidateConfigInput(cand, port)
+	if s.Mobile != nil {
+		var err error
+		configInput, err = s.mobileConfig(ctx, configInput)
+		if err != nil {
+			return nil, markLocalCandidateError("config", err)
+		}
+	}
 	s.appendLog(fmt.Sprintf("trying relay %s at %s:%d", cand.ID, cand.PublicHost, cand.PublicPort))
 	s.appendLog("checking relay TCP reachability")
 	tcpMS, err := s.relayDialer()(ctx, cand.PublicHost, cand.PublicPort)
@@ -1029,7 +1081,6 @@ func (s *Engine) attemptDirectCandidate(ctx context.Context, conn *connection, c
 
 	// Try a direct NAT-punched path first; on any failure fall back to the
 	// relay hub endpoint so the outcome is never worse than not punching.
-	configInput := s.candidateConfigInput(cand, port)
 	if est := s.maybePunch(candCtx, conn, cand); est != nil {
 		res.punch = est
 		res.accessTransport = "punch"
@@ -1038,6 +1089,9 @@ func (s *Engine) attemptDirectCandidate(ctx context.Context, conn *connection, c
 		configInput.PunchPeerExcludeAddress = est.PeerIP
 		go func() { _ = est.Bridge.Serve(candCtx) }()
 		s.appendLog(fmt.Sprintf("punched direct path to %s (peer %s, nat %s)", cand.ID, est.PeerIP, est.NATClass))
+	}
+	if s.Mobile != nil {
+		res.reporter = &RunTelemetry{manager: conn.mgr, relayID: cand.ID}
 	}
 	return s.startCandidate(res, configInput)
 }
@@ -1082,7 +1136,16 @@ func (s *Engine) startCandidate(res *candidateResult, configInput client.SingBox
 	}
 
 	res.stopGrace = s.candidateStopGrace()
-	run, err := s.tunnelRuntime().Run(res.ctx, configJSON)
+	var run TunnelRun
+	if s.Mobile != nil {
+		res.mobileRun, err = s.Mobile.Runtime.Run(res.ctx, configJSON, res.reporter)
+		run = res.mobileRun
+	} else {
+		run, err = s.tunnelRuntime().Run(res.ctx, configJSON)
+	}
+	if err == nil && run == nil {
+		err = errors.New("runtime returned no run")
+	}
 	if err != nil {
 		res.teardown()
 		// A launch failure defaults to the tunnel_start stage; a runtime that
@@ -1095,6 +1158,10 @@ func (s *Engine) startCandidate(res *candidateResult, configInput client.SingBox
 	}
 	res.run = run
 	res.runDone = run.Done()
+	if err := res.ctx.Err(); err != nil {
+		res.teardown()
+		return nil, err
+	}
 
 	// Wait until sing-box binds the mixed inbound (a real start measurement, and
 	// far faster than a fixed grace when the engine is ready in tens of ms), or
@@ -1120,10 +1187,20 @@ func (s *Engine) startCandidate(res *candidateResult, configInput client.SingBox
 			return nil, err
 		}
 		if res.accessTransport == brokerapi.TransportDirect || res.accessTransport == "punch" {
-			return nil, markDirectPathError("internet_probe", err)
+			stage := "internet_probe"
+			var remote *RemotePathError
+			if errors.As(err, &remote) {
+				stage = remote.Stage
+			}
+			return nil, markDirectPathError(stage, err)
 		}
 		if res.accessTransport == accessTransportWSS {
-			return nil, markWSSTransportError("wss_internet_probe", res.frontID, err)
+			stage := "wss_internet_probe"
+			var remote *RemotePathError
+			if errors.As(err, &remote) {
+				stage = remote.Stage
+			}
+			return nil, markWSSTransportError(stage, res.frontID, err)
 		}
 		return nil, err
 	}
@@ -1143,11 +1220,32 @@ func (s *Engine) probeCandidate(res *candidateResult) (int64, error) {
 	}
 	probeCh := make(chan probeResult, 1)
 	go func() {
-		ms, err := s.tunnelProber()(res.ctx, res.proxyPort)
+		var ms int64
+		var err error
+		if res.mobileRun != nil {
+			ms, err = s.verifyMobilePath(res.ctx, res, VerificationStartup)
+		} else {
+			ms, err = s.tunnelProber()(res.ctx, res.proxyPort)
+		}
 		probeCh <- probeResult{ms: ms, err: err}
 	}()
 	select {
 	case result := <-probeCh:
+		// A local stop already observed when verification finishes beats a
+		// remote-looking result (shipping TunnelStartupGuard tie semantics).
+		if res.mobileRun != nil {
+			if err := res.ctx.Err(); err != nil {
+				return 0, err
+			}
+			select {
+			case err := <-res.runDone:
+				if err == nil {
+					err = errors.New("engine stopped during verification")
+				}
+				return 0, markLocalCandidateError("tunnel_probe_process", err)
+			default:
+			}
+		}
 		return result.ms, result.err
 	case runErr := <-res.runDone:
 		if runErr == nil {
@@ -1205,8 +1303,11 @@ func connectMeasurements(res *candidateResult, brokerFetchMS int64) map[string]i
 // publish. Returns false without publishing anything when it bailed.
 func (s *Engine) promote(ctx context.Context, conn *connection, res *candidateResult, brokerFetchMS int64, initial bool) bool {
 	label := geoLabel(res.relay)
-	recent := recentFrom(res.relay)
-	s.appendLog("connected via " + label)
+	if s.Mobile != nil {
+		label = mobileLocationLabel(res.relay)
+	}
+	recent := recentFrom(res.relay, s.Mobile != nil)
+	s.logConnected(label)
 
 	s.mu.Lock()
 	if conn.disconnecting || ctx.Err() != nil {
@@ -1243,7 +1344,13 @@ func (s *Engine) promote(ctx context.Context, conn *connection, res *candidateRe
 			conn.mgr.Record("connection_succeeded", res.relay.ID, attrs, connectMeasurements(res, brokerFetchMS))
 			_ = conn.mgr.Flush(ctx)
 		}
-		conn.heartbeatOnce.Do(func() { go conn.mgr.RunHeartbeatLoopGated(ctx, s.heartbeatTick, s.awaitResumed) })
+		conn.heartbeatOnce.Do(func() {
+			conn.heartbeatDone = make(chan struct{})
+			go func() {
+				defer close(conn.heartbeatDone)
+				conn.mgr.RunHeartbeatLoopGated(ctx, s.heartbeatTick, s.awaitResumed)
+			}()
+		})
 	}
 	return true
 }
@@ -1496,8 +1603,16 @@ func (s *Engine) emitStatusLocked(status Status, label labelOp, errOp errorOp) {
 	s.emitLocked()
 }
 
+func (s *Engine) logConnected(label string) {
+	if label == "" {
+		s.appendLog("connected")
+	} else {
+		s.appendLog("connected via " + label)
+	}
+}
+
 func (s *Engine) markConnected(label string, recent *RecentNode) {
-	s.appendLog("connected via " + label)
+	s.logConnected(label)
 	s.mu.Lock()
 	s.markConnectedLocked(label, recent)
 	s.mu.Unlock()
@@ -1509,6 +1624,9 @@ func (s *Engine) markConnectedLocked(label string, recent *RecentNode) {
 	s.core.status = StatusConnected
 	l := label
 	s.core.relayLabel = &l
+	if s.Mobile != nil && label == "" {
+		s.core.relayLabel = nil
+	}
 	s.core.lastError = nil
 	if recent != nil {
 		s.core.recents = s.persistPrepend(s.core.recents, *recent)
@@ -1524,6 +1642,7 @@ func (s *Engine) appendLog(line string) {
 
 func (s *Engine) stateLocked() State {
 	return State{
+		Details:    s.snapshotDetailsLocked(),
 		Status:     s.core.status,
 		RelayLabel: s.core.relayLabel,
 		LastError:  s.core.lastError,
@@ -1532,6 +1651,7 @@ func (s *Engine) stateLocked() State {
 }
 
 func (s *Engine) emitLocked() {
+	s.core.details = s.detailsLocked()
 	if s.Sink != nil {
 		s.Sink.StateChanged(s.stateLocked())
 	}

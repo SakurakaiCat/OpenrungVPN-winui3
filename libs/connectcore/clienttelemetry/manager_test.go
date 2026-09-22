@@ -357,3 +357,54 @@ func TestNoPlatformLabelByDefault(t *testing.T) {
 		t.Fatalf("default manager stamped a platform attribute: %+v", m.outbox[0].Attributes)
 	}
 }
+
+func TestRecordEventAttributesWinExceptReleaseIdentity(t *testing.T) {
+	for _, withHost := range []bool{false, true} {
+		t.Run(strconv.FormatBool(withHost), func(t *testing.T) {
+			m := testManager(&captureTransport{}, time.Now)
+			host := map[string]string{
+				"app_version": "0.3.9", "platform": "android",
+				"engine": "connectcore", "engine_version": "0.6.0",
+				"failure_reason": "host failure", "transport": "host transport",
+				"front_id": "host front", "reason": "host reason", "os": "host OS",
+				"network_transport": "wifi",
+			}
+			if withHost {
+				m.SetHostAttributes(func() map[string]string {
+					// A metadata callback may query manager state outside its locks.
+					m.mu.Lock()
+					m.mu.Unlock()
+					return host
+				})
+			}
+			if _, err := m.BeginSession(); err != nil {
+				t.Fatal(err)
+			}
+			attrs := map[string]string{
+				"app_version": "event version", "platform": "event platform",
+				"engine": "event engine", "engine_version": "event engine version",
+				"failure_reason": "timeout", "transport": "wss",
+				"front_id": "front-1", "reason": "event reason", "os": "event OS",
+			}
+			m.Record("relay_attempt_failed", "relay", attrs, nil)
+			got := m.outbox[len(m.outbox)-1].Attributes
+			for key, want := range attrs {
+				if withHost {
+					switch key {
+					case "app_version", "platform", "engine", "engine_version":
+						want = host[key]
+					}
+				}
+				if got[key] != want {
+					t.Errorf("%s = %q, want %q", key, got[key], want)
+				}
+			}
+			if withHost && got["network_transport"] != "wifi" {
+				t.Fatal("nonconflicting host metadata lost")
+			}
+			if attrs["app_version"] != "event version" || host["reason"] != "host reason" {
+				t.Fatal("merge mutated supplied maps")
+			}
+		})
+	}
+}

@@ -10,10 +10,12 @@ import (
 // HTTPClient posts telemetry batches to the broker. It is the CLI analog of the
 // Android TelemetryClient.
 type HTTPClient struct {
-	BaseURL    string
-	HTTP       *http.Client
-	AppVersion string
-	Platform   brokerapi.Platform
+	AzureSNI        bool
+	PlatformVersion string
+	BaseURL         string
+	HTTP            *http.Client
+	AppVersion      string
+	Platform        brokerapi.Platform
 }
 
 // Send posts the given events to POST /api/v1/telemetry/events. It is a no-op for
@@ -25,9 +27,13 @@ func (c HTTPClient) Send(ctx context.Context, events []Event) error {
 	}
 
 	api := brokerapi.NewClient(c.HTTP, brokerapi.Options{
-		AppVersion: c.AppVersion,
-		Platform:   c.Platform,
+		AppVersion:      c.AppVersion,
+		Platform:        c.Platform,
+		PlatformVersion: c.PlatformVersion,
 	})
+	if c.AzureSNI {
+		ctx = brokerapi.WithAzureSNI(ctx, true)
+	}
 	return api.SendTelemetry(ctx, c.BaseURL, events)
 }
 
