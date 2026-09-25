@@ -119,6 +119,10 @@ func serve(cfg serveConfig) error {
 	defer stop()
 
 	go c.broadcastLoop(ctx)
+	// The Windows physical-network epoch monitor (netwatch.go): turns OS
+	// network changes into instant engine recovery instead of probe-timeout
+	// detection. No-op on non-Windows builds.
+	go c.watchPhysicalNetwork(ctx)
 	if cfg.heartbeatTimeout > 0 {
 		go c.heartbeatWatchdog(ctx, cfg.heartbeatTimeout)
 	}

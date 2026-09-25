@@ -30,6 +30,9 @@ GUI 从不直接触碰系统代理或路由表；一切经由核心引擎完成�
 与官方客户端的行为完全一致。
 The GUI never touches the system proxy or the routing table itself; everything goes through the core engine, so crash recovery (proxy snapshot restore), direct-first WSS fallback, punching and failover behave exactly like the official clients.
 
+- **物理网络纪元监控**：核心每秒快照物理网卡并喂给引擎的网络信号接口（与官方移动端 ADR-003 相同的 seam）。Wi-Fi↔有线切换、睡眠唤醒或 DHCP 续约时，WSS 会话立即退役并以全新直连优先梯子恢复，直连/打洞会话立即体检，恢复闸门即刻放行——不再等待探测超时与 5 秒轮询。
+  **Physical-network epoch monitor**: the core snapshots the physical adapters once per second and feeds the engine's network-signal seam (the same seam as the official mobile clients' ADR-003). On Wi-Fi↔Ethernet switches, sleep/resume, or DHCP renewals a live WSS session is retired and recovered with a fresh direct-first ladder at once, direct/punched sessions get an immediate health sweep, and the recovery gate releases instantly — instead of waiting out probe timeouts and the 5-second poll.
+
 - **代理模式**（默认）：在稳定的每安装端口上监听本地混合 HTTP/SOCKS，并将系统代理指向它；无需管理员权限。
   **Proxy mode** (default): loopback mixed HTTP/SOCKS on a stable per-install port, system proxy pointed at it. No admin rights needed.
 - **TUN 模式**：通过内置 sing-box 引擎进行全设备捕获（wintun，无需安装驱动）。需要管理员权限——应用会通过 UAC 请求一次，且仅以提升权限重启核心进程。
