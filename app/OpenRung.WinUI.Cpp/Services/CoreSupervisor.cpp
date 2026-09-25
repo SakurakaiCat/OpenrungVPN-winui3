@@ -3,7 +3,6 @@
 #include "AppLog.h"
 #include "AppSettings.h"
 #include "Localization.h"
-#include "RelayDirectory.h"
 #include "../Models/Dto.h"
 
 using namespace winrt::Windows::Data::Json;
@@ -85,8 +84,6 @@ namespace Services
 
     void CoreSupervisor::Stop()
     {
-        // A going-away core cannot serve the ladder's next dial; cancel first.
-        RelayDirectory::CancelFailover(I18n::Tr(L"failover.reasonCoreStop"));
         m_disposed = true;
         m_stopStream = true;
         // Core death drops the SSE socket, unblocking the stream thread's read.
@@ -182,7 +179,7 @@ namespace Services
             auto const steps = 50;
             auto const stepMs = delay / steps;
             for (int i = 0; i < steps && !m_stopStream && !m_disposed; ++i)
-                ::Sleep(std::max<DWORD>(1, stepMs.count()));
+                ::Sleep(stepMs.count() < 1 ? 1 : static_cast<DWORD>(stepMs.count()));
             delay = std::min<decltype(delay)>(delay * 2, std::chrono::duration_cast<std::chrono::milliseconds>(kMaxBackoff));
         }
     }
@@ -230,6 +227,8 @@ namespace Services
             AppLog::Write(L"core state: " + (prev ? *prev : L"start") + L" -> " + state.status + extra);
         }
         if (StateChanged) StateChanged(state);
-        RelayDirectory::OnStateForFailover(state);
+        // No automatic failover: a failed connect of the user's pick prompts
+        // for smart routing or another node (HomePage::RenderState); smart
+        // routing itself is started explicitly via ConnectSmart.
     }
 }

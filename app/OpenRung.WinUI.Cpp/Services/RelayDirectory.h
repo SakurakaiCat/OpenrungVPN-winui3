@@ -60,6 +60,10 @@ namespace Services
     /// Blocking; throws on failure — the caller owns the error surface.
     namespace RelayDirectory
     {
+        /// Reserved id of the "smart routing" pseudo-node pinned to the top
+        /// of both relay lists. Selecting it and connecting runs ConnectSmart.
+        inline constexpr wchar_t kSmartRelayId[] = L"__smart_route__";
+
         void Load();  // fetch + assign titles + publish (throws)
         /// Fire-and-forget "update from remote": re-fetches the ranked
         /// directory from the broker via the core on a worker thread, with
@@ -86,15 +90,19 @@ namespace Services
         /// language (no network round-trip); no-op when the list is empty.
         void Retitle();
 
-        /// Automatic failover: called on every core state update. When a
-        /// connect attempt ends in "failed" with a relay-reachability error,
-        /// starts a worker ladder that tries the remaining relays in the
-        /// directory (lowest measured latency first) until one connects or
-        /// all have failed. No-op while a ladder is already running.
-        void OnStateForFailover(StateSnapshot const& state);
-        /// Stops a running ladder (user pressed connect/disconnect, or the
-        /// core is going away). Safe to call when idle.
-        void CancelFailover(std::wstring const& reason);
-        bool FailoverActive();
+        /// Smart routing: dispatches ONE auto-select connect (empty relay/
+        /// country target) on a worker thread and lets the core's own ranked
+        /// ladder do everything — latency-bucketed candidate ordering, direct
+        /// -> hub -> WSS/CDN fallback per rung, automatic re-ladder on drops
+        /// (the same one-click flow as the official mobile client's auto
+        /// relay). Returns false when a dispatch is already in flight.
+        /// onFinished (optional) fires on the worker thread once the POST
+        /// returned: null when the ladder was accepted (its outcome arrives
+        /// via state events), the exception on a synchronous refusal.
+        bool ConnectSmart(std::function<void(std::exception_ptr)> onFinished = nullptr);
+        /// True for dial-stage reachability errors (timeout/refused/no
+        /// route/…): a different relay might fix these. Non-dial errors
+        /// (elevation, tun_conflict, unknown) return false.
+        bool IsRetryableConnectError(std::wstring const& error);
     }
 }

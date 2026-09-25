@@ -131,12 +131,14 @@ namespace winrt::OpenRung::WinUI::implementation
         // (the bindable form); a typed IObservableVector<RelayRow> fails with
         // E_INVALIDARG when assigned to ItemsSource.
         auto rows = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
-        int selectedIndex = -1;
+        // The smart-routing pseudo-node is pinned to the top of the list.
+        rows.Append(StateUi::MakeSmartRelayRow());
+        int selectedIndex = selected == Services::RelayDirectory::kSmartRelayId ? 0 : -1;
         for (size_t i = 0; i < relays.size(); ++i)
         {
             auto row = StateUi::MakeRelayRow(relays[i]);
             if (!selected.empty() && std::wstring(row.Id()) == selected)
-                selectedIndex = static_cast<int>(i);
+                selectedIndex = static_cast<int>(i + 1);
             rows.Append(std::move(row));
         }
 
@@ -163,20 +165,43 @@ namespace winrt::OpenRung::WinUI::implementation
             std::chrono::steady_clock::now() - *m_pendingSince < std::chrono::seconds(10))
             busy = true;
         else
+        {
             m_pendingSince.reset();
+            m_pendingConnect.reset();
+        }
 
         auto connected = StateUi::IsConnected(state);
+        auto label = state.relayLabel.value_or(L"");
+        // While the user's click is in flight the toggle already shows its
+        // target state — knob on the destination side, orange track for a
+        // connect — with the spinner spinning inside the white knob instead
+        // of over the whole track. Core-driven connecting without a click
+        // (failover keeps the old label) keeps the toggle on: a mid-session
+        // reconnect must not flip the switch off.
+        bool switchOn = m_pendingConnect.has_value()
+            ? *m_pendingConnect
+            : (connected || (busy && !label.empty()));
+        bool showBusyRing = busy;
+        bool showConnectingText = busy && m_pendingConnect.has_value();
 
         Services::StartupLog::Write("RenderState 1");
         ConnectButton().IsEnabled(!busy);
-        ToggleTrack().Background(StateUi::ToggleBrush(connected));
-        Knob().Margin(StateUi::KnobMargin(connected));
-        BusyRing().IsActive(busy);
-        BusyRing().Visibility(busy ? Visibility::Visible : Visibility::Collapsed);
+        ToggleTrack().Background(StateUi::ToggleBrush(switchOn));
+        Knob().Margin(StateUi::KnobMargin(switchOn));
+        BusyRing().IsActive(showBusyRing);
+        BusyRing().Visibility(showBusyRing ? Visibility::Visible : Visibility::Collapsed);
         Services::StartupLog::Write("RenderState 2");
 
-        auto label = state.relayLabel.value_or(L"");
-        RelayLabel().Text(label.empty() ? I18n::Tr(L"home.notConnected") : label);
+        if (showConnectingText)
+        {
+            // "正在连接中/正在断开中" — the target text for the user's click.
+            RelayLabel().Text(I18n::Tr(*m_pendingConnect
+                ? L"home.connecting" : L"home.disconnecting"));
+        }
+        else
+        {
+            RelayLabel().Text(label.empty() ? I18n::Tr(L"home.notConnected") : label);
+        }
 
         StatusLine().Text(state.status + L" · " + I18n::Tr(
             state.mode == L"tun" ? L"mode.tun" : L"mode.proxy"));
@@ -198,6 +223,47 @@ namespace winrt::OpenRung::WinUI::implementation
             ElapsedText().Visibility(Visibility::Collapsed);
         }
         Services::StartupLog::Write("RenderState 4");
+
+        // A failed connect surfaces once per failure: the smart pseudo-node's
+        // own ladder exhausted every candidate (error bar), while a regular
+        // node prompts for smart routing or a new pick.
+        if (state.status == L"failed")
+        {
+            auto error = state.lastError.value_or(L"");
+            auto selected = Services::RelayStore::Instance().SelectedId();
+            if (Services::RelayDirectory::IsRetryableConnectError(error))
+            {
+                std::wstring failedId = state.connection
+                    ? state.connection->relayId : selected;
+                auto key = failedId + L"|" + error;
+                if (key != m_promptedFailureKey)
+                {
+                    if (selected == Services::RelayDirectory::kSmartRelayId)
+                    {
+                        // The core's ladder tried every candidate and none
+                        // answered; don't re-offer smart routing to itself.
+                        ShowError(I18n::Tr(L"relay.smartExhausted"));
+                        m_promptedFailureKey = key;
+                    }
+                    else
+                    {
+                        std::wstring title = failedId;
+                        for (auto const& relay : Services::RelayStore::Instance().Relays())
+                            if (relay.id == failedId)
+                            {
+                                title = Services::RelayDirectory::DisplayTitleOf(relay);
+                                break;
+                            }
+                        if (OfferSmartFallback(title))
+                            m_promptedFailureKey = key;
+                    }
+                }
+            }
+        }
+        else
+        {
+            m_promptedFailureKey.clear();
+        }
     }
 
     void HomePage::ConnectButton_Click(Windows::Foundation::IInspectable const&,
@@ -208,10 +274,6 @@ namespace winrt::OpenRung::WinUI::implementation
         auto state = Services::AppState::Instance().Current();
         if (StateUi::IsBusy(state) || m_pendingSince)
             return;
-
-        // A click is the user taking over: any running failover ladder stops
-        // here and this click's outcome belongs to the user alone.
-        Services::RelayDirectory::CancelFailover(I18n::Tr(L"failover.reasonUser"));
 
         auto connected = StateUi::IsConnected(state);
         auto selectedId = Services::RelayStore::Instance().SelectedId();
@@ -230,7 +292,17 @@ namespace winrt::OpenRung::WinUI::implementation
         // Optimistic busy: the spinner starts now, not when the SSE stream
         // delivers the core's "connecting" state.
         m_pendingSince = std::chrono::steady_clock::now();
+        m_pendingConnect = !connected;
         RenderState();
+
+        // The smart-routing pseudo-node dispatches the core's auto-select
+        // ladder; its callback surfaces synchronous refusals only.
+        if (!connected &&
+            selectedId == Services::RelayDirectory::kSmartRelayId)
+        {
+            BeginSmartConnect();
+            return;
+        }
 
         std::thread([this, weak = m_lifetime.Weak(), connected, selectedId] {
             try
@@ -247,6 +319,7 @@ namespace winrt::OpenRung::WinUI::implementation
                     if (!StateUi::Lifetime::Live(weak))
                         return;
                     m_pendingSince.reset();
+                    m_pendingConnect.reset();
                     RenderState();
                     OfferElevatedRestart(msg);
                 });
@@ -257,6 +330,7 @@ namespace winrt::OpenRung::WinUI::implementation
                     if (!StateUi::Lifetime::Live(weak))
                         return;
                     m_pendingSince.reset();
+                    m_pendingConnect.reset();
                     RenderState();
                     ShowError(msg);
                 });
@@ -269,6 +343,7 @@ namespace winrt::OpenRung::WinUI::implementation
                     if (!StateUi::Lifetime::Live(weak))
                         return;
                     m_pendingSince.reset();
+                    m_pendingConnect.reset();
                     RenderState();
                     ShowError(I18n::Tr(L"dlg.connectFailed"));
                 });
@@ -280,6 +355,80 @@ namespace winrt::OpenRung::WinUI::implementation
     {
         ErrorBar().Message(winrt::hstring(message));
         ErrorBar().IsOpen(true);
+    }
+
+    // Smart routing (the pseudo-node at the top of the list): dispatch the
+    // core's auto-select connect; this callback surfaces a synchronous
+    // refusal (428/409) — every other outcome arrives via state events.
+    void HomePage::BeginSmartConnect()
+    {
+        Services::RelayDirectory::ConnectSmart(
+            [this, weak = m_lifetime.Weak()](std::exception_ptr ep) {
+                Services::Ui::Post([this, weak, ep] {
+                    if (!StateUi::Lifetime::Live(weak))
+                        return;
+                    m_pendingSince.reset();
+                    m_pendingConnect.reset();
+                    RenderState();
+                    if (!ep)
+                        return; // regular end: connected, or exhausted (store error shows)
+                    try
+                    {
+                        std::rethrow_exception(ep);
+                    }
+                    catch (Services::ElevationRequiredException const& ex)
+                    {
+                        OfferElevatedRestart(ex.WideMessage());
+                    }
+                    catch (Services::CoreApiException const& ex)
+                    {
+                        ShowError(ex.WideMessage());
+                    }
+                    catch (std::exception const&)
+                    {
+                        ShowError(I18n::Tr(L"dlg.connectFailed"));
+                    }
+                });
+            });
+    }
+
+    // Failure surface for a regular node that failed to dial: offer smart
+    // routing (primary) or let the user pick another node in the list.
+    bool HomePage::OfferSmartFallback(std::wstring const& failedTitle)
+    {
+        auto xamlRoot = XamlRoot();
+        if (!xamlRoot)
+            return false; // page not in a frame yet; retry on the next tick
+        ContentDialog dialog;
+        dialog.Title(box_value(winrt::hstring(I18n::Tr(L"dlg.smartFailTitle"))));
+        dialog.Content(box_value(winrt::hstring(I18n::Tr(L"dlg.smartFailBody", failedTitle))));
+        dialog.PrimaryButtonText(winrt::hstring(I18n::Tr(L"dlg.smartUse")));
+        dialog.CloseButtonText(winrt::hstring(I18n::Tr(L"dlg.close")));
+        dialog.DefaultButton(ContentDialogButton::Primary);
+        dialog.XamlRoot(xamlRoot);
+
+        auto operation = dialog.ShowAsync();
+        operation.Completed([this, weak = m_lifetime.Weak()](
+                                Windows::Foundation::IAsyncOperation<ContentDialogResult> const& async,
+                                Windows::Foundation::AsyncStatus status) {
+            if (status != Windows::Foundation::AsyncStatus::Completed ||
+                async.get() != ContentDialogResult::Primary)
+                return; // "关闭": the user picks another node themselves
+            if (!StateUi::Lifetime::Live(weak))
+                return;
+
+            // Switch the selection to smart routing and connect at once.
+            Services::RelayStore::Instance().SetSelectedId(
+                Services::RelayDirectory::kSmartRelayId);
+            auto state = Services::AppState::Instance().Current();
+            if (StateUi::IsBusy(state) || m_pendingSince)
+                return;
+            m_pendingSince = std::chrono::steady_clock::now();
+            m_pendingConnect = true;
+            RenderState();
+            BeginSmartConnect();
+        });
+        return true;
     }
 
     // 428 path from the contract: offer to relaunch the core as Administrator,

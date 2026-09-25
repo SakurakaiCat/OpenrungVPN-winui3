@@ -30,6 +30,8 @@ namespace Services
             {L"home.refreshTip", L"从远端更新节点列表并测速", L"Update the node list from the remote and measure latency"},
             {L"home.booting", L"正在启动核心…", L"Starting core…"},
             {L"home.notConnected", L"未连接", L"Not connected"},
+            {L"home.connecting", L"正在连接中", L"Connecting…"},
+            {L"home.disconnecting", L"正在断开中", L"Disconnecting…"},
             {L"home.errorTitle", L"错误", L"Error"},
             {L"relay.unnamed", L"节点", L"Node"},
             {L"relay.summary", L"{0} 个节点，已测速 {1} 个", L"{0} nodes, {1} ranked"},
@@ -174,17 +176,23 @@ namespace Services
             {L"log.relayUpdateDone", L"从远端更新节点完成:{0} 个节点", L"Remote node update finished: {0} nodes"},
             {L"log.relayUpdateFailed", L"从远端更新节点失败:", L"Remote node update failed: "},
             {L"log.cnRelaysHidden", L"已隐藏 {0} 个中国大陆节点（设置中可关闭）", L"Hidden {0} mainland China node(s); toggle in Settings"},
-            {L"log.failoverStart", L"连接失败，自动尝试其他 {0} 个节点…", L"Connect failed; automatically trying {0} other node(s)…"},
-            {L"log.failoverAttempt", L"自动重试 {0}/{1}：{2}", L"Failover {0}/{1}: {2}"},
-            {L"log.failoverSuccess", L"自动重试成功：已连接 {0}", L"Failover succeeded: connected to {0}"},
-            {L"log.failoverStopped", L"自动重试停止（此错误换节点无法解决）:", L"Failover stopped (another relay cannot fix this):"},
-            {L"log.failoverExhausted", L"自动重试结束：{0} 个候选节点均连接失败", L"Failover finished: all {0} candidate node(s) failed"},
-            {L"log.failoverCancelled", L"自动重试已取消（{0}）", L"Failover cancelled ({0})"},
-            {L"failover.reasonUser", L"用户操作", L"user action"},
-            {L"failover.reasonBusy", L"引擎忙，无法继续", L"engine busy"},
-            {L"failover.reasonCoreStop", L"核心停止", L"core stopping"},
-            {L"relay.failoverExhausted", L"连接失败：{0} 个候选节点均无法连通，请稍后重试或从列表选择其他节点。",
-             L"Connect failed: none of the {0} candidate node(s) were reachable. Try again later or pick another node."},
+
+            // smart routing (the pseudo-node pinned to the top of the list)
+            {L"relay.smart", L"智能路由", L"Smart Routing"},
+            {L"relay.smartHint",
+             L"连接时自动测速择优：核心按延迟排序候选，逐个尝试并自动回退直连/中继/CDN 路径，掉线自动换线",
+             L"Latency-ranked auto connect: the core orders candidates by probe, dials them in turn with direct/hub/CDN fallback, and re-routes automatically on drops"},
+            {L"relay.smartTag", L"自动", L"Auto"},
+            {L"relay.smartExhausted",
+             L"智能路由：所有候选节点均无法连通，请稍后重试或更换网络环境。",
+             L"Smart routing: no candidate relay was reachable. Try again later or change networks."},
+
+            // failed-connect prompt: smart routing vs. picking another node
+            {L"dlg.smartFailTitle", L"连接失败", L"Connect failed"},
+            {L"dlg.smartFailBody",
+             L"无法连接到“{0}”。\n\n你可以改用智能路由（连接时自动测速并逐一尝试可用节点），或在节点列表中更换其他节点后重试。",
+             L"Could not connect to \"{0}\".\n\nUse smart routing (it probes latency on connect and tries reachable nodes in turn), or pick another node in the list and retry."},
+            {L"dlg.smartUse", L"使用智能路由", L"Use smart routing"},
 
             // settings status lines
             {L"status.checking", L"正在检查更新…", L"Checking for updates…"},

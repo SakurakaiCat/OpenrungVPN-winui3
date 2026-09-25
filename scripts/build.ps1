@@ -25,4 +25,20 @@ Write-Host '==> building OpenRung.WinUI (C++/WinRT, win-x64, self-contained)'
 $buildLog = $LASTEXITCODE
 if ($buildLog -ne 0) { throw 'msbuild failed' }
 
+# Prune the Windows App SDK's MUI locale satellite folders (fr-CA, de-DE, …):
+# each holds only the WinUI framework's localized .mui strings, and MUI falls
+# back to the embedded neutral resources when a folder is absent. Keep en-us
+# (neutral fallback) and the app's languages (zh-CN/zh-TW). Mirrors
+# scripts/prune-mui.sh, which the WSL build and the release CI also run.
+# A satellite dir's top level holds ONLY *.mui entries — anything else
+# (Assets/, Views/, core/) is never touched.
+foreach ($dir in Get-ChildItem -LiteralPath "$root\dist" -Directory) {
+    $other = Get-ChildItem -LiteralPath $dir.FullName |
+        Where-Object { $_.Name -notlike '*.mui' }
+    if ($other) { continue }
+    if ($dir.Name -in @('en-us', 'zh-CN', 'zh-TW')) { continue }
+    Write-Host "==> pruning MUI locale folder: $($dir.Name)"
+    Remove-Item -LiteralPath $dir.FullName -Recurse -Force
+}
+
 Write-Host "==> done: $root\dist"

@@ -190,7 +190,10 @@ int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     catch (...)
     {
         Services::StartupLog::Write("apartment init failed");
-        throw;
+        // The CRT startup wraps wWinMain in __try/__except(_seh_filter_exe):
+        // a C++ exception escaping here is swallowed into _exit(0xE06D7363)
+        // with no Watson report, so log-and-return is strictly more visible.
+        return 1;
     }
 
     // Single instance: two supervisors would fight over the shared core
@@ -217,17 +220,17 @@ int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     catch (winrt::hresult_error const& ex)
     {
         Services::StartupLog::Write(L"Application::Start threw: " + Services::StartupLog::Describe(ex));
-        throw;
+        return 1;
     }
     catch (std::exception const& ex)
     {
         Services::StartupLog::Write(std::string("Application::Start threw: ") + ex.what());
-        throw;
+        return 1;
     }
     catch (...)
     {
         Services::StartupLog::Write("Application::Start threw unknown exception");
-        throw;
+        return 1;
     }
 
     if (singleInstance) ::CloseHandle(singleInstance);
