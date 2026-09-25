@@ -225,12 +225,14 @@ namespace winrt::OpenRung::WinUI::implementation
         auto selected = store.SelectedId();
         // Same bindable-vector requirement as HomePage.OnStoreChanged.
         auto rows = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
-        int selectedIndex = -1;
+        // The smart-routing pseudo-node is pinned to the top of the list.
+        rows.Append(StateUi::MakeSmartRelayRow());
+        int selectedIndex = selected == Services::RelayDirectory::kSmartRelayId ? 0 : -1;
         for (size_t i = 0; i < relays.size(); ++i)
         {
             auto row = StateUi::MakeRelayRow(relays[i]);
             if (!selected.empty() && std::wstring(row.Id()) == selected)
-                selectedIndex = static_cast<int>(i);
+                selectedIndex = static_cast<int>(i + 1);
             rows.Append(std::move(row));
         }
 

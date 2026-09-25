@@ -3,6 +3,7 @@
 #include "RelayRow.g.h"
 #include "../Models/Dto.h"
 #include "../Services/Localization.h"
+#include "../Services/RelayDirectory.h"
 
 namespace winrt::OpenRung::WinUI::implementation
 {
@@ -94,6 +95,27 @@ namespace StateUi
             catch (...)
             {
             }
+        }
+        return row;
+    }
+
+    /// The "smart routing" pseudo-row pinned to the top of both relay lists.
+    /// Selecting it makes the next connect run RelayDirectory::ConnectSmart.
+    inline winrt::OpenRung::WinUI::RelayRow MakeSmartRelayRow()
+    {
+        winrt::OpenRung::WinUI::RelayRow row = winrt::make<winrt::OpenRung::WinUI::implementation::RelayRow>();
+        row.Id(winrt::hstring(Services::RelayDirectory::kSmartRelayId));
+        row.DisplayTitle(winrt::hstring(Services::I18n::Tr(L"relay.smart")));
+        row.Label(winrt::hstring(Services::I18n::Tr(L"relay.smartHint")));
+        row.NodeClass(winrt::hstring(Services::I18n::Tr(L"relay.smartTag")));
+        // No country code → no flag; use the app mark instead.
+        try
+        {
+            row.FlagImage(winrt::Microsoft::UI::Xaml::Media::Imaging::BitmapImage(
+                winrt::Windows::Foundation::Uri(L"ms-appx:///Assets/Icon256.png")));
+        }
+        catch (...)
+        {
         }
         return row;
     }

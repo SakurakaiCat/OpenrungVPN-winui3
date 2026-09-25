@@ -113,6 +113,14 @@ jobs:
           test -f dist/OpenRung.WinUI.exe
           test -f dist/core/openrung-core.exe
 
+      # The self-contained WindowsAppSDK payload ships ~80 MUI locale
+      # satellite folders (fr-CA, de-DE, …). Prune them before anything is
+      # packaged; the script fails the job if a satellite survives, so
+      # neither the zip nor the installer can ever contain them.
+      - name: Prune MUI locale satellites
+        shell: bash
+        run: bash scripts/prune-mui.sh dist
+
       - name: Zip portable dist
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath OpenRung-win-x64.zip -CompressionLevel Optimal

@@ -320,9 +320,10 @@ namespace Services
         if (hidden > 0)
             AppLog::Write(I18n::Tr(L"log.cnRelaysHidden", std::to_wstring(hidden)));
         // A selection pointing at a relay that is no longer listed (hidden or
-        // gone upstream) must not silently drive the connect button.
+        // gone upstream) must not silently drive the connect button. The
+        // smart-routing pseudo-node never enters the store list, so keep it.
         auto selected = store.SelectedId();
-        bool selectedPresent = false;
+        bool selectedPresent = selected == kSmartRelayId;
         for (auto const& r : store.Relays())
             if (r.id == selected) { selectedPresent = true; break; }
         if (selected.empty() || !selectedPresent)
@@ -415,6 +416,14 @@ namespace Services
         if (state.status != L"connected")
             return false;
         auto selected = RelayStore::Instance().SelectedId();
+        // Smart routing while live: connect-while-connected IS the switch —
+        // the engine tears the current session down and re-dials through
+        // its own ranked auto-select ladder.
+        if (selected == kSmartRelayId)
+        {
+            ConnectSmart();
+            return true;
+        }
         if (selected.empty() || !state.connection || state.connection->relayId == selected)
             return false;
 
@@ -441,39 +450,44 @@ namespace Services
         return relay.label.empty() ? relay.id : relay.label;
     }
 
-    // ---- Automatic connect failover -------------------------------------------
+    // ---- Smart routing -------------------------------------------------------
     //
-    // POST /api/connect returns 202 immediately; the outcome arrives as state
-    // events (connecting -> connected | failed). When the user's chosen relay
-    // fails to dial, a worker ladder re-dials the remaining relays in the
-    // directory (lowest measured latency first) until one connects or all of
-    // them have failed. Any user-driven connect/disconnect (or core stop)
-    // cancels the ladder — the ladder never fights the user.
+    // The "smart routing" pseudo-node (kSmartRelayId) pinned to the top of
+    // both relay lists. Connecting with it selected dispatches ONE
+    // auto-select connect (empty relay/country target) — the same one-click
+    // flow the official mobile client uses for its auto relay, where the
+    // core owns the entire ladder:
+    //
+    //   - fetch the broker directory, filter usable relays;
+    //   - probe the candidate head's TCP connect latency in parallel
+    //     (RelayRankMaxProbes) and reorder by latency BUCKET, so broker
+    //     order — and with it the broker's load balancing — still decides
+    //     inside a bucket (ranker.go; no herding onto the nearest relay);
+    //   - dial candidates in turn, each rung with direct -> hub punch ->
+    //     signed WSS/CDN fallback (runLadder);
+    //   - once connected, supervise: a dropped session re-ladders with the
+    //     failed relay demoted last (monitor.go).
+    //
+    // Progress arrives as engine log lines and state events on the SSE
+    // stream, exactly like any other connect. The client keeps no probe
+    // pass, no per-attempt polling, no disconnect churn, and no client-side
+    // ordering at all — every one of those was a slower, less capable
+    // reimplementation of what the engine already does.
 
     namespace
     {
-        /// Hard cap on one failover attempt: if a relay hasn't connected
-        /// within this window, cut it loose (disconnect the in-flight dial)
-        /// and move to the next candidate. Chosen to comfortably cover a
-        /// healthy relay (connects in 1-3s) while keeping a dead relay's
-        /// cost bounded.
-        constexpr auto kPerAttemptBudget = std::chrono::seconds(10);
+        /// Guards only the in-flight dispatch POST: /api/connect returns 202
+        /// as soon as the engine has taken over, after which the outcome
+        /// belongs to the SSE state stream, and any later user action
+        /// (connect to a specific relay, disconnect) simply replaces the
+        /// engine's session — connectMu serializes teardown-then-install.
+        std::mutex g_smartDispatchMutex;
+        bool g_smartDispatching = false;
 
-        /// Grace for the engine to leave the previous state after our POST
-        /// before we treat a "failed" snapshot as this attempt's own result.
-        constexpr auto kStaleStateGrace = std::chrono::seconds(3);
-
-        struct FailoverControl
-        {
-            std::mutex mutex;
-            std::atomic<uint64_t> generation{0}; // bumped on cancel/finish
-            bool active = false;                 // guarded by the mutex
-        };
-        FailoverControl g_failover;
-
-        // Only dial-stage (reachability) failures trigger failover. Elevation
-        // refusals, tun_conflict and bad requests cannot be fixed by another
-        // relay, and an empty error means an unknown cause — don't storm.
+        // Only dial-stage (reachability) failures are worth retrying on a
+        // different relay. Elevation refusals, tun_conflict and bad requests
+        // cannot be fixed by another relay, and an empty error means an
+        // unknown cause.
         bool RetryableConnectError(std::wstring const& error)
         {
             if (error.empty())
@@ -490,250 +504,62 @@ namespace Services
                     return true;
             return false;
         }
+    }
 
-        bool StatusBusy(std::wstring const& status)
+    /// Dispatches the core's auto-select connect on a worker thread (POST
+    /// /api/connect with empty targets; EnsureRunning may spawn the core,
+    /// which is not a UI-thread job). onFinished fires once the POST has
+    /// returned: nullptr when the ladder was accepted (its outcome arrives
+    /// via state events), the exception on a synchronous refusal (428
+    /// elevation, 409 tun_conflict, dead core). Without a callback (relay
+    /// switch path) the refusal is surfaced inline instead.
+    bool RelayDirectory::ConnectSmart(std::function<void(std::exception_ptr)> onFinished)
+    {
         {
-            return status == L"preparing" || status == L"connecting" ||
-                   status == L"disconnecting";
+            std::lock_guard lock(g_smartDispatchMutex);
+            if (g_smartDispatching)
+                return false; // previous dispatch still in flight
+            g_smartDispatching = true;
         }
-
-        /// Waits until the engine is idle (disconnected/failed), so a connect
-        /// POST cannot collide with a running transition. When the engine
-        /// stays busy past the first window (e.g. our budget cut an attempt
-        /// short), tear the partial session down instead of waiting out the
-        /// full dial timeout.
-        bool AwaitQuiescent(uint64_t myGen, std::chrono::milliseconds timeout)
-        {
-            auto deadline = std::chrono::steady_clock::now() + timeout;
-            for (;;)
+        std::thread([onFinished = std::move(onFinished)] {
+            auto done = [&] {
+                std::lock_guard lock(g_smartDispatchMutex);
+                g_smartDispatching = false;
+            };
+            try
             {
-                if (g_failover.generation.load() != myGen)
-                    return false;
-                auto status = AppState::Instance().Current().status;
-                if (!StatusBusy(status))
-                    return true;
-                if (std::chrono::steady_clock::now() >= deadline)
-                {
-                    try
-                    {
-                        CoreSupervisor::Instance().Core().EnsureRunning(false).Disconnect();
-                    }
-                    catch (...)
-                    {
-                        return false; // core unreachable — nothing to dial with
-                    }
-                    auto stopAt = std::chrono::steady_clock::now() +
-                        std::chrono::seconds(10);
-                    while (std::chrono::steady_clock::now() < stopAt)
-                    {
-                        if (g_failover.generation.load() != myGen)
-                            return false;
-                        if (!StatusBusy(AppState::Instance().Current().status))
-                            return true;
-                        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                    }
-                    return false;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                // Empty broker/relay/country: the core's auto-select target,
+                // which runs its own ranked ladder (see the block comment).
+                CoreSupervisor::Instance().Core().EnsureRunning(false)
+                    .Connect(L"", L"", L"");
+                done();
+                if (onFinished)
+                    onFinished(nullptr); // accepted; outcome via state events
             }
-        }
-
-        enum class AttemptOutcome
-        {
-            Connected,
-            Failed,
-            Cancelled,
-        };
-
-        /// Waits for the attempt just POSTed to reach a terminal state. The
-        /// engine goes connecting first; a "failed" seen before any
-        /// connecting event is the PREVIOUS attempt's stale state, so it only
-        /// counts as this attempt's failure after a grace period.
-        ///
-        /// Each attempt gets a hard budget (see kPerAttemptBudget): when it
-        /// expires we stop waiting and let the ladder move on — the engine is
-        /// still dialing, and AwaitQuiescent will cut it loose before the
-        /// next attempt. Waiting out the engine's own dial timeout (~21s on
-        /// Windows, and a failed relay ladder internally retries every
-        /// address) made a bad relay stall failover for minutes.
-        AttemptOutcome AwaitTerminal(uint64_t myGen, std::chrono::milliseconds timeout)
-        {
-            auto postAt = std::chrono::steady_clock::now();
-            auto deadline = postAt + timeout;
-            bool sawConnecting = false;
-            while (std::chrono::steady_clock::now() < deadline)
+            catch (...)
             {
-                if (g_failover.generation.load() != myGen)
-                    return AttemptOutcome::Cancelled;
-                auto status = AppState::Instance().Current().status;
-                if (!sawConnecting)
+                done();
+                if (onFinished)
                 {
-                    if (status == L"connecting" || status == L"preparing")
-                        sawConnecting = true;
-                    else if (status == L"connected")
-                        return AttemptOutcome::Connected;
-                    else if (status == L"disconnecting" || status == L"disconnected")
-                        return AttemptOutcome::Cancelled;
-                    else if (status == L"failed" &&
-                        std::chrono::steady_clock::now() - postAt > kStaleStateGrace)
-                        return AttemptOutcome::Failed; // failed before dialing even started
+                    onFinished(std::current_exception());
                 }
                 else
                 {
-                    if (status == L"connected")
-                        return AttemptOutcome::Connected;
-                    if (status == L"failed")
-                        return AttemptOutcome::Failed;
-                    if (status == L"disconnected" || status == L"disconnecting")
-                        return AttemptOutcome::Cancelled;
+                    // No callback (relay switch path): inline error surface.
+                    try { throw; }
+                    catch (std::exception const& ex)
+                    {
+                        AppLog::Write(Utf8ToWide(ex.what()));
+                        RelayStore::Instance().SetError(Utf8ToWide(ex.what()));
+                    }
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
             }
-            return sawConnecting ? AttemptOutcome::Failed : AttemptOutcome::Cancelled;
-        }
-
-        void FailoverLadder(uint64_t myGen, std::wstring const& failedRelayId)
-        {
-            auto finish = [&] {
-                std::lock_guard lock(g_failover.mutex);
-                g_failover.active = false;
-                g_failover.generation.fetch_add(1);
-            };
-            auto& store = RelayStore::Instance();
-
-            // Candidates: every relay except the one that just failed, in the
-            // directory's ranked order with measured latencies first.
-            std::vector<RelayInfo> candidates;
-            for (auto const& relay : store.Relays())
-                if (relay.id != failedRelayId)
-                    candidates.push_back(relay);
-            std::stable_sort(candidates.begin(), candidates.end(),
-                [](RelayInfo const& a, RelayInfo const& b) {
-                    auto key = [](RelayInfo const& r) {
-                        return r.latencyMs ? *r.latencyMs
-                                           : std::numeric_limits<long>::max();
-                    };
-                    return key(a) < key(b);
-                });
-
-            AppLog::Write(I18n::Tr(L"log.failoverStart",
-                std::to_wstring(static_cast<long long>(candidates.size()))));
-
-            int attempts = 0;
-            bool connected = false;
-            for (auto const& candidate : candidates)
-            {
-                if (g_failover.generation.load() != myGen)
-                    return; // cancelled; the canceller owns the surface
-                ++attempts;
-
-                store.SetSelectedId(candidate.id);
-                AppLog::Write(I18n::Tr(L"log.failoverAttempt",
-                    std::to_wstring(attempts),
-                    std::to_wstring(static_cast<long long>(candidates.size())),
-                    RelayDirectory::DisplayTitleOf(candidate)));
-
-                if (!AwaitQuiescent(myGen, std::chrono::seconds(5)))
-                {
-                    if (g_failover.generation.load() == myGen)
-                        AppLog::Write(I18n::Tr(L"log.failoverCancelled",
-                            I18n::Tr(L"failover.reasonBusy")));
-                    finish();
-                    return;
-                }
-
-                try
-                {
-                    auto& api = CoreSupervisor::Instance().Core().EnsureRunning(false);
-                    api.Connect(L"", candidate.id, L"");
-                }
-                catch (std::exception const& ex)
-                {
-                    // 428 elevation / 409 tun_conflict / dead core: no relay
-                    // change can fix these, so stop instead of storming.
-                    AppLog::Write(I18n::Tr(L"log.failoverStopped") +
-                        L" " + Utf8ToWide(ex.what()));
-                    finish();
-                    return;
-                }
-
-                auto outcome = AwaitTerminal(myGen, kPerAttemptBudget);
-                if (g_failover.generation.load() != myGen)
-                    return; // cancelled (e.g. core stopped)
-                if (outcome == AttemptOutcome::Connected)
-                {
-                    connected = true;
-                    AppLog::Write(I18n::Tr(L"log.failoverSuccess",
-                        RelayDirectory::DisplayTitleOf(candidate)));
-                    break;
-                }
-                // Failed, or the 10s budget expired: cut the in-flight dial
-                // loose (AwaitQuiescent disconnects a still-busy engine) and
-                // move to the next candidate.
-            }
-
-            finish();
-            if (connected)
-            {
-                store.SetError(L"");
-            }
-            else
-            {
-                AppLog::Write(I18n::Tr(L"log.failoverExhausted",
-                    std::to_wstring(attempts)));
-                store.SetError(I18n::Tr(L"relay.failoverExhausted",
-                    std::to_wstring(attempts)));
-            }
-        }
-    }
-
-    void RelayDirectory::OnStateForFailover(StateSnapshot const& state)
-    {
-        if (state.status != L"failed")
-            return;
-        {
-            std::lock_guard lock(g_failover.mutex);
-            if (g_failover.active)
-                return; // the ladder watches its own attempts
-        }
-        if (!state.lastError || !RetryableConnectError(*state.lastError))
-            return;
-
-        // The failed relay: prefer the attempt the core reports, fall back to
-        // the UI selection (the user's pick, which is what just failed).
-        std::wstring failedRelayId =
-            state.connection ? state.connection->relayId : std::wstring{};
-        if (failedRelayId.empty())
-            failedRelayId = RelayStore::Instance().SelectedId();
-
-        uint64_t myGen = 0;
-        {
-            std::lock_guard lock(g_failover.mutex);
-            if (g_failover.active)
-                return;
-            g_failover.active = true;
-            myGen = g_failover.generation.fetch_add(1) + 1;
-        }
-        std::thread([myGen, failedRelayId = std::move(failedRelayId)] {
-            FailoverLadder(myGen, failedRelayId);
         }).detach();
+        return true;
     }
 
-    void RelayDirectory::CancelFailover(std::wstring const& reason)
+    bool RelayDirectory::IsRetryableConnectError(std::wstring const& error)
     {
-        {
-            std::lock_guard lock(g_failover.mutex);
-            if (!g_failover.active)
-                return;
-            g_failover.active = false;
-            g_failover.generation.fetch_add(1);
-        }
-        AppLog::Write(I18n::Tr(L"log.failoverCancelled", reason));
-    }
-
-    bool RelayDirectory::FailoverActive()
-    {
-        std::lock_guard lock(g_failover.mutex);
-        return g_failover.active;
+        return RetryableConnectError(error);
     }
 }

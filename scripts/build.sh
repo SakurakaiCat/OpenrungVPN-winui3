@@ -30,8 +30,11 @@ WIN_ROOT=$(wslpath -w "$ROOT")
 # MSVC cannot create its PCH intermediate on the \\wsl.localhost 9P share
 # (error C1083), so intermediate and output directories must live on the
 # Windows side; the finished payload is copied back into dist\ afterwards.
-TMP_WIN=$(powershell.exe -NoProfile -Command '[IO.Path]::GetTempPath()' | tr -d '\r')
-BUILD_TMP_WIN="${TMP_WIN}openrung-build"
+# Under %LOCALAPPDATA% rather than %TEMP%: MSB8029 flags temp-dir IntDir
+# (disk cleanup breaks incremental builds) and the staging is meant to
+# persist between builds anyway.
+TMP_WIN=$(powershell.exe -NoProfile -Command '[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)' | tr -d '\r')
+BUILD_TMP_WIN="${TMP_WIN}\\openrung-build"
 BUILD_TMP_WIN="${BUILD_TMP_WIN%/}\\"
 BUILD_TMP_WSL=$(wslpath "$BUILD_TMP_WIN")
 
@@ -67,5 +70,10 @@ mkdir -p "$ROOT/dist"
 rm -f "$ROOT/dist/OpenRung.WinUI.dll" "$ROOT/dist/OpenRung.WinUI.deps.json" \
   "$ROOT/dist/OpenRung.WinUI.runtimeconfig.json"
 cp -r "$BUILD_TMP_WSL/dist/OpenRung.WinUI/." "$ROOT/dist/"
+
+# Prune the Windows App SDK's MUI locale satellite folders (fr-CA, de-DE, …).
+# The shared script fails the build if any satellite survives, so nothing
+# locale-shaped can reach dist \, the installer, or the portable zip.
+bash "$ROOT/scripts/prune-mui.sh" "$ROOT/dist"
 
 echo "==> done: $ROOT/dist"
