@@ -7,209 +7,343 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
+    <Page.Resources>
+        <!-- Grouped settings cards: one rounded card per topic, controls
+             right-aligned on their row (Windows 11 Settings look). -->
+        <Style x:Key="SettingsCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="18,14,18,14" />
+        </Style>
+        <Style x:Key="CardTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="CardDivider" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Setter Property="CornerRadius" Value="0.5" />
+        </Style>
+        <Style x:Key="CardCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Page.Resources>
+
     <ScrollViewer VerticalScrollBarVisibility="Auto" VerticalScrollMode="Enabled">
-        <StackPanel Padding="24" Spacing="16" MaxWidth="560">
-        <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" Text="设置" />
+        <StackPanel
+            Padding="24,24,24,32"
+            Spacing="14"
+            MaxWidth="640"
+            HorizontalAlignment="Center">
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="CaptureModeHeader" FontWeight="SemiBold" Text="捕获模式" />
             <TextBlock
-                x:Name="CaptureModeDesc"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap">
-                代理模式仅接管系统代理；TUN 模式接管全设备流量，需要管理员权限。
-            </TextBlock>
-            <ComboBox
-                x:Name="ModeCombo"
-                HorizontalAlignment="Left"
-                SelectionChanged="ModeCombo_SelectionChanged">
-                <ComboBoxItem Content="代理模式" Tag="proxy" />
-                <ComboBoxItem Content="TUN 模式" Tag="tun" />
-            </ComboBox>
-        </StackPanel>
+                x:Name="TitleText"
+                FontSize="26"
+                FontWeight="SemiBold"
+                Margin="0,0,0,6"
+                Text="设置" />
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="SystemProxyHeader" FontWeight="SemiBold" Text="系统代理" />
-            <TextBlock
-                x:Name="SystemProxyText"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap" />
-            <CheckBox
-                x:Name="AutoClearCheck"
-                Checked="AutoClearProxy_Checked"
-                Unchecked="AutoClearProxy_Unchecked"
-                Content="启动时自动清除已有系统代理" />
-            <Button
-                x:Name="ClearProxyButton"
-                HorizontalAlignment="Left"
-                Click="ClearProxy_Click"
-                Content="立即清除系统代理" />
-        </StackPanel>
+            <!-- 捕获模式 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                        <TextBlock x:Name="CaptureModeHeader" Style="{StaticResource CardTitle}" Text="捕获模式" />
+                        <TextBlock x:Name="CaptureModeDesc" Style="{StaticResource CardCaption}">
+                            代理模式仅接管系统代理；TUN 模式接管全设备流量，需要管理员权限。
+                        </TextBlock>
+                    </StackPanel>
+                    <ComboBox
+                        Grid.Column="1"
+                        x:Name="ModeCombo"
+                        MinWidth="150"
+                        VerticalAlignment="Center"
+                        SelectionChanged="ModeCombo_SelectionChanged">
+                        <ComboBoxItem Content="代理模式" Tag="proxy" />
+                        <ComboBoxItem Content="TUN 模式" Tag="tun" />
+                    </ComboBox>
+                </Grid>
+            </Border>
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="LanguageHeader" FontWeight="SemiBold" Text="语言" />
-            <ComboBox
-                x:Name="LanguageCombo"
-                HorizontalAlignment="Left"
-                SelectionChanged="LanguageCombo_SelectionChanged">
-                <ComboBoxItem Content="跟随系统" Tag="system" />
-                <ComboBoxItem Content="简体中文" Tag="zh" />
-                <ComboBoxItem Content="English" Tag="en" />
-            </ComboBox>
-        </StackPanel>
+            <!-- 系统代理 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel Spacing="10">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            x:Name="SystemProxyHeader"
+                            Style="{StaticResource CardTitle}"
+                            VerticalAlignment="Center"
+                            Text="系统代理" />
+                        <Button
+                            Grid.Column="1"
+                            x:Name="ClearProxyButton"
+                            VerticalAlignment="Center"
+                            Click="ClearProxy_Click"
+                            Content="立即清除系统代理" />
+                    </Grid>
+                    <TextBlock x:Name="SystemProxyText" Style="{StaticResource CardCaption}" />
+                    <Border Style="{StaticResource CardDivider}" />
+                    <CheckBox
+                        x:Name="AutoClearCheck"
+                        Checked="AutoClearProxy_Checked"
+                        Unchecked="AutoClearProxy_Unchecked"
+                        Content="启动时自动清除已有系统代理" />
+                </StackPanel>
+            </Border>
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="RelayHeader" FontWeight="SemiBold" Text="节点列表" />
-            <ToggleSwitch
-                x:Name="HideCnToggle"
-                HorizontalAlignment="Left"
-                Margin="0,4,0,0"
-                Toggled="HideCnToggle_Toggled" />
-            <TextBlock
-                x:Name="HideCnDesc"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap" />
-        </StackPanel>
+            <!-- 语言 + 节点列表：两张小卡并排，避免整页单列平铺 -->
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="DnsHeader" FontWeight="SemiBold" Text="DNS" />
-            <TextBlock
-                x:Name="DnsDesc"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap">
-                隧道内域名解析使用的 DNS 服务器；修改在下次连接时生效。
-            </TextBlock>
-            <ComboBox
-                x:Name="DnsCombo"
-                HorizontalAlignment="Left"
-                SelectionChanged="DnsCombo_SelectionChanged">
-                <ComboBoxItem Content="自动（1.1.1.1 / 8.8.8.8）" Tag="auto" />
-                <ComboBoxItem Content="Cloudflare" Tag="cloudflare" />
-                <ComboBoxItem Content="Google" Tag="google" />
-                <ComboBoxItem Content="AliDNS" Tag="alidns" />
-                <ComboBoxItem Content="Quad9" Tag="quad9" />
-                <ComboBoxItem Content="自定义" Tag="custom" />
-            </ComboBox>
-            <StackPanel Orientation="Horizontal" Spacing="8" Visibility="Collapsed" x:Name="DnsCustomPanel">
-                <TextBox
-                    x:Name="DnsCustomBox"
-                    MinWidth="280"
-                    PlaceholderText="1.1.1.1, 8.8.8.8, 2606:4700:4700::1111" />
-                <Button
-                    x:Name="DnsSaveButton"
-                    Click="DnsSave_Click"
-                    Content="保存" />
-            </StackPanel>
-            <ToggleSwitch
-                x:Name="Ipv6Toggle"
-                HorizontalAlignment="Left"
-                Margin="0,4,0,0"
-                Toggled="Ipv6Toggle_Toggled" />
-            <TextBlock
-                x:Name="DnsIpv6Desc"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap" />
-            <TextBlock x:Name="DnsStatusText" Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
+                <Border Grid.Column="0" Style="{StaticResource SettingsCard}" VerticalAlignment="Stretch">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            x:Name="LanguageHeader"
+                            Style="{StaticResource CardTitle}"
+                            VerticalAlignment="Center"
+                            Text="语言" />
+                        <ComboBox
+                            Grid.Column="1"
+                            x:Name="LanguageCombo"
+                            MinWidth="130"
+                            VerticalAlignment="Center"
+                            SelectionChanged="LanguageCombo_SelectionChanged">
+                            <ComboBoxItem Content="跟随系统" Tag="system" />
+                            <ComboBoxItem Content="简体中文" Tag="zh" />
+                            <ComboBoxItem Content="English" Tag="en" />
+                        </ComboBox>
+                    </Grid>
+                </Border>
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="CoreHeader" FontWeight="SemiBold" Text="核心" />
-            <TextBlock x:Name="CoreVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="EndpointText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="CoreStatusText" Style="{StaticResource CaptionTextBlockStyle}" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button
-                    x:Name="CoreStartButton"
-                    Click="CoreStart_Click"
-                    Content="启动核心" />
-                <Button
-                    x:Name="CoreStopButton"
-                    Click="CoreStop_Click"
-                    Content="停止核心" />
-                <Button
-                    x:Name="CoreRestartButton"
-                    Click="CoreRestart_Click"
-                    Content="重启核心" />
-            </StackPanel>
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                x:Name="CoreManagerHint"
-                TextWrapping="Wrap"
-                Text="重启核心会保留当前提权状态（TUN 模式下将重新弹出 UAC 确认）。" />
-        </StackPanel>
+                <Border Grid.Column="1" Style="{StaticResource SettingsCard}" VerticalAlignment="Stretch">
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Name="RelayHeader" Style="{StaticResource CardTitle}" Text="节点列表" />
+                        <ToggleSwitch
+                            x:Name="HideCnToggle"
+                            HorizontalAlignment="Left"
+                            Toggled="HideCnToggle_Toggled" />
+                        <TextBlock x:Name="HideCnDesc" Style="{StaticResource CardCaption}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
 
-        <StackPanel Spacing="4">
-            <TextBlock x:Name="AboutHeader" FontWeight="SemiBold" Text="关于" />
-            <StackPanel HorizontalAlignment="Center" Spacing="12">
-                <Image Width="128" Height="128" HorizontalAlignment="Center">
-                    <Image.Source>
-                        <SvgImageSource
-                            RasterizePixelHeight="256"
-                            RasterizePixelWidth="256"
-                            UriSource="ms-appx:///Assets/openrung-mark.svg" />
-                    </Image.Source>
-                </Image>
-                <TextBlock
-                    FontSize="20"
-                    FontWeight="SemiBold"
-                    HorizontalAlignment="Center"
-                    Text="OpenRung VPN" />
-                <Image
-                    Width="88"
-                    Height="88"
-                    HorizontalAlignment="Center">
-                    <Image.Source>
-                        <BitmapImage UriSource="ms-appx:///Assets/avatar.jpg" />
-                    </Image.Source>
-                </Image>
-                <HyperlinkButton
-                    HorizontalAlignment="Center"
-                    Content="GitHub @SakurakaiCat"
-                    NavigateUri="https://github.com/SakurakaiCat" />
-                <TextBlock
-                    x:Name="AboutMaintainerText"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    HorizontalAlignment="Center"
-                    Style="{StaticResource CaptionTextBlockStyle}"
-                    Text="OpenRung VPN WinUI3 客户端 · 维护者 @SakurakaiCat" />
-            </StackPanel>
-            <TextBlock x:Name="AppVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <!-- DNS -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel Spacing="10">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock x:Name="DnsHeader" Style="{StaticResource CardTitle}" Text="DNS" />
+                            <TextBlock x:Name="DnsDesc" Style="{StaticResource CardCaption}">
+                                隧道内域名解析使用的 DNS 服务器；修改在下次连接时生效。
+                            </TextBlock>
+                        </StackPanel>
+                        <ComboBox
+                            Grid.Column="1"
+                            x:Name="DnsCombo"
+                            MinWidth="170"
+                            VerticalAlignment="Center"
+                            SelectionChanged="DnsCombo_SelectionChanged">
+                            <ComboBoxItem Content="自动（1.1.1.1 / 8.8.8.8）" Tag="auto" />
+                            <ComboBoxItem Content="Cloudflare" Tag="cloudflare" />
+                            <ComboBoxItem Content="Google" Tag="google" />
+                            <ComboBoxItem Content="AliDNS" Tag="alidns" />
+                            <ComboBoxItem Content="Quad9" Tag="quad9" />
+                            <ComboBoxItem Content="自定义" Tag="custom" />
+                        </ComboBox>
+                    </Grid>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="Collapsed"
+                        x:Name="DnsCustomPanel">
+                        <TextBox
+                            x:Name="DnsCustomBox"
+                            MinWidth="280"
+                            PlaceholderText="1.1.1.1, 8.8.8.8, 2606:4700:4700::1111" />
+                        <Button
+                            x:Name="DnsSaveButton"
+                            Click="DnsSave_Click"
+                            Content="保存" />
+                    </StackPanel>
+                    <Border Style="{StaticResource CardDivider}" />
+                    <StackPanel Spacing="4">
+                        <ToggleSwitch
+                            x:Name="Ipv6Toggle"
+                            HorizontalAlignment="Left"
+                            Toggled="Ipv6Toggle_Toggled" />
+                        <TextBlock x:Name="DnsIpv6Desc" Style="{StaticResource CardCaption}" />
+                    </StackPanel>
+                    <TextBlock x:Name="DnsStatusText" Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+            </Border>
+
+            <!-- 核心 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel Spacing="10">
+                    <TextBlock x:Name="CoreHeader" Style="{StaticResource CardTitle}" Text="核心" />
+                    <StackPanel Spacing="2">
+                        <TextBlock x:Name="CoreStatusText" FontWeight="SemiBold" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="CoreVersionText" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="EngineText" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="EndpointText" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="CoreStartButton"
+                            Click="CoreStart_Click"
+                            Content="启动核心" />
+                        <Button
+                            x:Name="CoreStopButton"
+                            Click="CoreStop_Click"
+                            Content="停止核心" />
+                        <Button
+                            x:Name="CoreRestartButton"
+                            Click="CoreRestart_Click"
+                            Content="重启核心" />
+                    </StackPanel>
+                    <Border Style="{StaticResource CardDivider}" />
+                    <TextBlock
+                        x:Name="CoreManagerHint"
+                        Style="{StaticResource CardCaption}"
+                        Text="重启核心会保留当前提权状态（TUN 模式下将重新弹出 UAC 确认）。" />
+                </StackPanel>
+            </Border>
+
+            <!-- 关于：独立 hero 卡片 -->
             <TextBlock
-                x:Name="AboutDevText"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap"
-                Text="OpenRung VPN WinUI3 由 @SakurakaiCat 基于 OpenRung 仓库二次开发。" />
-            <HyperlinkButton
-                Content="OpenRung 上游仓库 · github.com/openrung/openrung"
-                NavigateUri="https://github.com/openrung/openrung" />
-            <HyperlinkButton
-                Content="本客户端仓库 · github.com/SakurakaiCat/OpenrungVPN-winui3"
-                NavigateUri="https://github.com/SakurakaiCat/OpenrungVPN-winui3" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button
-                    x:Name="CheckUpdateButton"
-                    Click="CheckUpdate_Click"
-                    Content="检查更新" />
-                <TextBlock
-                    x:Name="UpdateStatusText"
-                    VerticalAlignment="Center"
-                    Style="{StaticResource CaptionTextBlockStyle}" />
-            </StackPanel>
-            <TextBlock
-                x:Name="CopyrightText"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                TextWrapping="Wrap"
-                Text="Copyright © 2026 @SakurakaiCat。本客户端基于上游 OpenRung 的修改作品，与上游 OpenRung 均以 GNU General Public License v3.0（GPL-3.0）发布，详见仓库根目录的 LICENSE 文件。" />
+                x:Name="AboutHeader"
+                Style="{StaticResource CardTitle}"
+                Margin="0,10,0,0"
+                Text="关于" />
+
+            <Border Style="{StaticResource SettingsCard}" Padding="0">
+                <StackPanel>
+                    <!-- 品牌橙渐变头图 -->
+                    <Border CornerRadius="8,8,0,0">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#26FA5A28" Offset="0" />
+                                <GradientStop Color="#0AFA5A28" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <StackPanel
+                            HorizontalAlignment="Center"
+                            Spacing="6"
+                            Padding="0,28,0,24">
+                            <Image Width="64" Height="64" HorizontalAlignment="Center">
+                                <Image.Source>
+                                    <SvgImageSource
+                                        RasterizePixelHeight="256"
+                                        RasterizePixelWidth="256"
+                                        UriSource="ms-appx:///Assets/openrung-mark.svg" />
+                                </Image.Source>
+                            </Image>
+                            <TextBlock
+                                FontSize="20"
+                                FontWeight="SemiBold"
+                                HorizontalAlignment="Center"
+                                Text="OpenRung VPN" />
+                            <TextBlock
+                                x:Name="AppVersionText"
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Padding="18,16,18,18" Spacing="12">
+                        <!-- 维护者 -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="12"
+                            HorizontalAlignment="Center">
+                            <Ellipse Width="44" Height="44" VerticalAlignment="Center">
+                                <Ellipse.Fill>
+                                    <ImageBrush
+                                        ImageSource="ms-appx:///Assets/avatar.jpg"
+                                        Stretch="UniformToFill" />
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <HyperlinkButton
+                                    Padding="0"
+                                    Content="GitHub @SakurakaiCat"
+                                    NavigateUri="https://github.com/SakurakaiCat" />
+                                <TextBlock x:Name="AboutMaintainerText" Style="{StaticResource CardCaption}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Style="{StaticResource CardDivider}" />
+
+                        <!-- 项目说明 + 仓库链接 -->
+                        <StackPanel Spacing="4" HorizontalAlignment="Center">
+                            <TextBlock
+                                x:Name="AboutDevText"
+                                Style="{StaticResource CardCaption}"
+                                HorizontalAlignment="Center"
+                                TextAlignment="Center"
+                                Text="OpenRung VPN WinUI3 由 @SakurakaiCat 基于 OpenRung 仓库二次开发。" />
+                            <HyperlinkButton
+                                Padding="0"
+                                HorizontalAlignment="Center"
+                                Content="OpenRung 上游仓库 · github.com/openrung/openrung"
+                                NavigateUri="https://github.com/openrung/openrung" />
+                            <HyperlinkButton
+                                Padding="0"
+                                HorizontalAlignment="Center"
+                                Content="本客户端仓库 · github.com/SakurakaiCat/OpenrungVPN-winui3"
+                                NavigateUri="https://github.com/SakurakaiCat/OpenrungVPN-winui3" />
+                        </StackPanel>
+
+                        <Border Style="{StaticResource CardDivider}" />
+
+                        <!-- 检查更新 -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="10"
+                            HorizontalAlignment="Center">
+                            <Button
+                                x:Name="CheckUpdateButton"
+                                Click="CheckUpdate_Click"
+                                Content="检查更新" />
+                            <TextBlock
+                                x:Name="UpdateStatusText"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            x:Name="CopyrightText"
+                            Style="{StaticResource CardCaption}"
+                            FontSize="11"
+                            HorizontalAlignment="Center"
+                            TextAlignment="Center"
+                            Text="Copyright © 2026 @SakurakaiCat。本客户端基于上游 OpenRung 的修改作品，与上游 OpenRung 均以 GNU General Public License v3.0（GPL-3.0）发布，详见仓库根目录的 LICENSE 文件。" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </StackPanel>
-    </StackPanel>
     </ScrollViewer>
 </Page>
